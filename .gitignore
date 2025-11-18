@@ -1,0 +1,8 @@
+/target
+/blockchain
+/blockchain1
+/blockchain2
+/blockchain3
+/target
+.env
+Cargo.lock
