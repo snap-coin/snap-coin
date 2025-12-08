@@ -1,8 +1,11 @@
 /target
-/blockchain
-/blockchain1
-/blockchain2
-/blockchain3
+/node-mainnet
+/node-testnet
+/node1
+/node2
+/node3
+/node4
+/node5
 /target
 .env
 Cargo.lock
