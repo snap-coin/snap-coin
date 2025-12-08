@@ -87,7 +87,7 @@ This approach makes your program a API client to a node that is already hosted (
     ```
 
 # Documentation and Development Reference
-Available here: [rust.rs](https://docs.rs/snap_coin/latest/)
+Available here: [rust.rs](https://docs.rs/snap-coin/latest/)
 
 # Support this Project
 You can support this project in many ways, but it is best to just develop and use Snap Coin. I take pride in this project, and by extent in this code. You can help us grow, as Snap Coin is a community effort, by creating apps that utilize Snap Coin, trading, using it as a medium of exchange for things like jobs.
@@ -104,6 +104,9 @@ You can buy the developer a coffee and help me keep my motivation:
 Snap Coin: 60bamx9k23wcbv6m4xo26h4lsgxwlb83wv2nf1n0hnnatkj9vx
 
 Bitcoin: bc1qacw3l33kzdg96tu268az3chsyrg3pcup0dat9j
+
 Etherum: 0xef98b5ea67248e8a3ee4f4d3674c8ebb2be4e39a
+
 Solana: 8ST3miN2KLdTNXa7pkK1g2qFB3xKzpe1bvCC2QuVBDHG
+
 BNB Smart Chain 0xef98b5ea67248e8a3ee4f4d3674c8ebb2be4e39a
