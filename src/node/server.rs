@@ -64,6 +64,7 @@ impl Server {
                     };
 
                     Peer::connect(peer.clone(), node.clone(), on_fail, stream).await;
+                    node.write().await.peers.push(peer);
                     Ok::<(), ServerError>(())
                 }
                 .await

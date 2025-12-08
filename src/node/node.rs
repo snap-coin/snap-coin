@@ -216,14 +216,11 @@ impl Node {
 
                                     // Connect to fetched peer
                                     let new_peer = Node::connect_peer(node.clone(), addr).await;
-                                    let Ok((peer_arc, _)) = new_peer else {
-                                        continue;
-                                    };
-
-                                    // Add to our known peers
-                                    {
-                                        let mut guard = node.write().await;
-                                        guard.peers.push(peer_arc);
+                                    match new_peer {
+                                        Ok(..) => {}
+                                        Err(..) => {
+                                            continue;
+                                        }
                                     }
 
                                     Node::log(format!(
