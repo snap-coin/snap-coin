@@ -21,16 +21,19 @@ pub enum ApiError {
     IOError(#[from] io::Error),
 }
 
+/// Server for hosting a Snap Coin API
 pub struct Server {
     port: u32,
     node: Arc<RwLock<Node>>,
 }
 
 impl Server {
+    /// Create a new server, do not listen for connections yet
     pub fn new(port: u32, node: Arc<RwLock<Node>>) -> Self {
         Server { port, node }
     }
 
+    /// Handle a incoming connection
     async fn connection(mut stream: TcpStream, node: Arc<RwLock<Node>>) {
         loop {
             if let Err(e) = async {
@@ -151,6 +154,7 @@ impl Server {
         }
     }
 
+    /// Start listening for clients
     pub async fn listen(&self) -> Result<(), ApiError> {
         let listener = match TcpListener::bind(format!("127.0.0.1:{}", self.port)).await {
             Ok(l) => l,

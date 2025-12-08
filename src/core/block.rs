@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Stores transaction, difficulties, its hash, and its nonce
-/// hash can be often used for indexing, however can only be trusted if this node checked this block already
+/// The hash can be often used for indexing, however can only be trusted if this node checked this block already
 #[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug)]
 pub struct Block {
     pub transactions: Vec<Transaction>,

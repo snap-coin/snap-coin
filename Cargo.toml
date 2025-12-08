@@ -1,7 +1,10 @@
 [package]
 name = "snap-coin"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+authors = ["Ice"]
+description = "The core library for developing and using Snap Coin"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.100"
@@ -9,8 +12,6 @@ argon2 = "0.5.3"
 async-trait = "0.1.89"
 bincode = "2.0.1"
 chrono = "0.4.42"
-console-subscriber = "0.5.0"
-crossterm = "0.29.0"
 ed25519-dalek = "2.2.0"
 futures = "0.3.31"
 num-bigint = "0.4.6"
@@ -19,9 +20,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.145"
 sha2 = "0.10.9"
 thiserror = "2.0.17"
-tokio = { version = "1", features = ["full", "tracing"] }
-tracing = "0.1.43"
-tracing-subscriber = "0.3.22"
+tokio = { version = "1", features = ["full"] }
 
 [lib]
 name = "snap_coin"

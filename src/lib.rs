@@ -8,12 +8,25 @@ use core::{
     transaction::{Transaction, TransactionInput, TransactionOutput},
 };
 
+/// Snap Coin API for accessing blockchain data from different programs
 pub mod api;
+
+/// Provides a standardized way to access blockchain data from many sources
 pub mod blockchain_data_provider;
+
+/// Core implementation of Snap Coin, contains all blockchain logic
 pub mod core;
+
+/// Contains all crypto primitives
 pub mod crypto;
+
+/// Node struct for hosting a P2P Snap Coin node
 pub mod node;
+
+/// Tests
 mod tests;
+
+/// Current Snap Coin version
 pub mod version;
 
 /// Economics package. Mostly utils and CONSTS
@@ -97,7 +110,7 @@ pub async fn build_transaction<B>(
     Ok(transaction)
 }
 
-/// Build a new block, given a blockchain reference and a transaction vector
+/// Build a new block, given a blockchain data provider reference and a transaction vector
 /// WARNING: This does not compute block pow nor hash!
 /// WARNING: It is assumed that all input transactions are fully valid (at current blockchain height)
 /// WARNING: This function adds reward transactions for you!

@@ -1,4 +1,3 @@
-pub mod keys;
 use argon2::{Argon2, Params};
 use bincode::{Decode, Encode};
 use ed25519_dalek::SigningKey;
@@ -11,6 +10,9 @@ use std::fmt;
 use std::ops::Deref;
 
 use keys::{Private, Public};
+
+/// Public / Private key logic
+pub mod keys;
 
 pub const MAGIC_BYTES: [u8; 10] = [205, 198, 59, 175, 94, 82, 224, 9, 114, 173];
 

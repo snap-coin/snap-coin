@@ -3,6 +3,7 @@ use thiserror::Error;
 
 use crate::{api::requests::RequestResponseError, core::{block::Block, blockchain::BlockchainError, transaction::{TransactionId, TransactionOutput}}, crypto::{Hash, keys::Public}};
 
+/// Provides a standardized way to access blockchain data from many sources
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum BlockchainDataProviderError {
     #[error("Failed to access data")]

@@ -23,9 +23,8 @@ pub const MIN_REWARD: u64 = 1; // smallest possible reward
 
 /// Developer wallet address
 pub const DEV_WALLET: Public = Public::new_from_buf(&[
-    234u8, 96u8, 97u8, 87u8, 97u8, 239u8, 56u8, 52u8, 234u8, 43u8, 146u8, 76u8, 74u8, 153u8, 196u8,
-    117u8, 237u8, 99u8, 76u8, 101u8, 164u8, 71u8, 29u8, 247u8, 192u8, 124u8, 101u8, 198u8, 234u8,
-    19u8, 244u8, 157u8,
+    183, 18, 137, 29, 115, 149, 208, 49, 169, 212, 49, 41, 60, 3, 44, 203, 49, 148, 233, 184, 10,
+    231, 74, 254, 219, 64, 234, 19, 117, 183, 68, 129,
 ]);
 /// Developer fee percent
 pub const DEV_FEE: f64 = 0.02;
