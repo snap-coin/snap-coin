@@ -120,8 +120,8 @@ impl Private {
     }
 
     /// Create a new private key from an existing keys (direct) buffer
-    pub const fn new_from_buf(buf: &[u8; 32]) -> Option<Private> {
-        Some(Private { private: *buf })
+    pub const fn new_from_buf(buf: &[u8; 32]) -> Private {
+        Private { private: *buf }
     }
 
     /// Get the keys raw buffer
