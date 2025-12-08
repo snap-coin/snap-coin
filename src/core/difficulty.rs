@@ -31,7 +31,7 @@ impl DifficultyManager {
     pub fn update_difficulty(&mut self, new_block: &Block) {
         // Block difficulty
         let time_ratio = (clamp_f(
-            (new_block.timestamp - self.last_timestamp) as f64 / TARGET_TIME as f64,
+            (new_block.timestamp.saturating_sub(self.last_timestamp)) as f64 / TARGET_TIME as f64,
             MAX_DIFF_CHANGE,
             2.0 - MAX_DIFF_CHANGE,
         ) * 1000.0) as u64;
