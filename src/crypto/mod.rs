@@ -75,6 +75,10 @@ impl Hash {
         let big_int = BigUint::from_bytes_be(&self.0);
         big_int.to_str_radix(36)
     }
+
+    pub fn dump_buf(&self) -> [u8; 32] {
+        self.0
+    }
 }
 
 impl Serialize for Hash {
@@ -167,6 +171,10 @@ impl Signature {
     pub fn dump_base36(&self) -> String {
         let big_int = BigUint::from_bytes_be(&self.0);
         big_int.to_str_radix(36)
+    }
+
+    pub fn dump_buf(&self) -> [u8; 64] {
+        self.0
     }
 }
 
