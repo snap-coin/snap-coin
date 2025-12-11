@@ -16,13 +16,13 @@ pub mod keys;
 
 /// Argon2 configuration, includes magic bytes (the salt for hashing)
 pub struct Argon2Config {
-    memory_cost: u32,
-    time_cost: u32,
-    parallelism: u32,
-    output_length: Option<usize>,
-    algorithm: argon2::Algorithm,
-    version: argon2::Version,
-    magic_bytes: [u8; 10]
+    pub memory_cost: u32,
+    pub time_cost: u32,
+    pub parallelism: u32,
+    pub output_length: Option<usize>,
+    pub algorithm: argon2::Algorithm,
+    pub version: argon2::Version,
+    pub magic_bytes: [u8; 10]
 }
 
 /// The currently used, blockchain argon2 config
