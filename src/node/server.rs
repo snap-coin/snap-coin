@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use thiserror::Error;
 use tokio::{net::TcpListener, sync::RwLock, task::JoinHandle};
@@ -22,16 +22,13 @@ pub struct Server;
 
 impl Server {
     // Start the server
-    pub async fn init(&self, node: Arc<RwLock<Node>>, port: u32) -> JoinHandle<Result<(), ServerError>> {
+    pub async fn init(&self, node: Arc<RwLock<Node>>, port: u16) -> JoinHandle<Result<(), ServerError>> {
         tokio::spawn(async move {
-            let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)).await {
-                Ok(l) => l,
-                Err(_) => TcpListener::bind("0.0.0.0:0").await?,
-            };
+            let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
             Node::log(
                 format!(
                     "Node listening on 0.0.0.0:{}",
-                    listener.local_addr()?.port()
+                    port
                 ),
             );
             let listener = Arc::new(listener);
@@ -41,29 +38,9 @@ impl Server {
                 let node = node.clone();
                 if let Err(e) = async move {
                     let (stream, addr) = listener.accept().await?;
-                    let peer = Arc::new(RwLock::new(Peer::new(addr)));
+                    let peer = Arc::new(RwLock::new(Peer::new(addr, true)));
 
-                    let on_fail = |peer: Arc<RwLock<Peer>>, node: Arc<RwLock<Node>>| {
-                        Box::pin(async move {
-                            Peer::kill(peer.clone()).await;
-                            let peer_address = peer.read().await.address;
-
-                            let mut node_peers = node.write().await;
-
-                            let mut new_peers = Vec::new();
-                            for p in node_peers.peers.drain(..) {
-                                let p_address = p.read().await.address;
-                                if p_address != peer_address {
-                                    new_peers.push(p);
-                                }
-                            }
-
-                            node_peers.peers = new_peers;
-                        })
-                            as Pin<Box<dyn futures::Future<Output = ()> + Send + 'static>>
-                    };
-
-                    Peer::connect(peer.clone(), node.clone(), on_fail, stream).await;
+                    Peer::connect(peer.clone(), node.clone(), stream).await;
                     node.write().await.peers.push(peer);
                     Ok::<(), ServerError>(())
                 }
