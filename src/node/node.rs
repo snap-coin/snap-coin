@@ -1,5 +1,4 @@
 use num_bigint::BigUint;
-use tokio::net::TcpStream;
 use std::io::Write;
 use std::{
     fs,
@@ -7,6 +6,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 use thiserror::Error;
+use tokio::net::TcpStream;
 use tokio::{
     sync::RwLock,
     task::{JoinError, JoinHandle},
@@ -174,6 +174,11 @@ impl Node {
         {
             node.write().await.last_seen_block = new_block.hash.unwrap();
         }
+
+        Node::log(format!(
+            "New block accepted: {}",
+            new_block.hash.unwrap().dump_base36()
+        ));
         Ok(())
     }
 
@@ -215,6 +220,10 @@ impl Node {
             }),
         )
         .await;
+        Node::log(format!(
+            "New transaction accepted: {}",
+            new_transaction.transaction_id.unwrap().dump_base36()
+        ));
         Ok(())
     }
 

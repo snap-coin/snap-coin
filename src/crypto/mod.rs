@@ -14,15 +14,35 @@ use keys::{Private, Public};
 /// Public / Private key logic
 pub mod keys;
 
-pub const MAGIC_BYTES: [u8; 10] = [205, 198, 59, 175, 94, 82, 224, 9, 114, 173];
+/// Argon2 configuration, includes magic bytes (the salt for hashing)
+pub struct Argon2Config {
+    memory_cost: u32,
+    time_cost: u32,
+    parallelism: u32,
+    output_length: Option<usize>,
+    algorithm: argon2::Algorithm,
+    version: argon2::Version,
+    magic_bytes: [u8; 10]
+}
 
+/// The currently used, blockchain argon2 config
+pub const ARGON2_CONFIG: Argon2Config = Argon2Config {
+    memory_cost: 8 * 1024,
+    time_cost: 1,
+    parallelism: 2,
+    output_length: Some(32),
+    algorithm: argon2::Algorithm::Argon2id,
+    version: argon2::Version::V0x13,
+    magic_bytes: [0xCD, 0xC6, 0x3B, 0xAF, 0x5E, 0x52, 0xE0, 0x9, 0x72, 0xAD]
+};
+
+// WARNING: SLOW
 pub fn argon2_hash(input: &[u8]) -> [u8; 32] {
-    // WARNING: SLOW
-    let params = Params::new(8 * 1024, 1, 2, Some(32)).unwrap();
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    let params = Params::new(ARGON2_CONFIG.memory_cost, ARGON2_CONFIG.time_cost, ARGON2_CONFIG.parallelism, ARGON2_CONFIG.output_length).unwrap();
+    let argon2 = Argon2::new(ARGON2_CONFIG.algorithm, ARGON2_CONFIG.version, params);
     let mut hash = [0u8; 32];
     argon2
-        .hash_password_into(input, &MAGIC_BYTES, &mut hash)
+        .hash_password_into(input, &ARGON2_CONFIG.magic_bytes, &mut hash)
         .unwrap();
     hash
 }
@@ -34,6 +54,7 @@ pub struct Hash([u8; 32]);
 
 impl Hash {
     /// Create a new hash by hashing some data
+    /// WARNING: SLOW
     pub fn new(data: &[u8]) -> Self {
         Hash(argon2_hash(data))
     }

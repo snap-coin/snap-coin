@@ -290,11 +290,6 @@ impl Peer {
                     // Make sure block is not in the blockchain
                     if Some(node.read().await.last_seen_block) != block.hash {
                         Node::submit_block(node.clone(), block.clone()).await?;
-
-                        Node::log(format!(
-                            "New block accepted: {}",
-                            block.hash.unwrap().dump_base36()
-                        ));
                     }
                 }
                 Command::NewTransaction { ref transaction } => {
@@ -304,11 +299,6 @@ impl Peer {
                     }
 
                     Node::submit_transaction(node, transaction.clone()).await?;
-
-                    Node::log(format!(
-                        "New transaction accepted: {}",
-                        transaction.transaction_id.unwrap().dump_base36()
-                    ));
                 }
                 Command::GetBlock { block_hash } => {
                     Peer::send(
