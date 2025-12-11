@@ -15,3 +15,6 @@ mod sync;
 
 /// Host a server for other peers to connect to
 mod server;
+
+/// Automatically find and connect to different peers
+mod auto_peer;

@@ -1,6 +1,6 @@
 [package]
 name = "snap-coin"
-version = "1.2.0"
+version = "2.0.0"
 edition = "2024"
 authors = ["Ice"]
 description = "The core library for developing and using Snap Coin"
@@ -15,6 +15,7 @@ bincode = "2.0.1"
 chrono = "0.4.42"
 ed25519-dalek = "2.2.0"
 futures = "0.3.31"
+get_if_addrs = "0.5.3"
 num-bigint = "0.4.6"
 rand = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }

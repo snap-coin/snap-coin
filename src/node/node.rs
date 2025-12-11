@@ -1,23 +1,20 @@
-use futures::future::try_join_all;
 use num_bigint::BigUint;
+use tokio::net::TcpStream;
 use std::io::Write;
 use std::{
     fs,
     net::SocketAddr,
-    pin::Pin,
-    str::FromStr,
     sync::{Arc, OnceLock},
-    time::Duration,
 };
 use thiserror::Error;
 use tokio::{
-    net::TcpStream,
     sync::RwLock,
     task::{JoinError, JoinHandle},
-    time::sleep,
 };
 
 use crate::crypto::Hash;
+use crate::node::auto_peer::auto_peer;
+use crate::node::server::ServerError;
 use crate::{
     core::{
         block::Block,
@@ -64,13 +61,13 @@ pub struct Node {
 
     pub target_peers: usize,
 
-    port: u32,
+    pub port: u16,
 }
 
 impl Node {
     /// Create a new blockchain (load / create) with default 12 nodes target
     /// WARNING: Only one instance of this struct can exist in one program
-    pub fn new(node_path: &str, port: u32) -> Arc<RwLock<Self>> {
+    pub fn new(node_path: &str, port: u16) -> Arc<RwLock<Self>> {
         NODE_PATH
             .set(String::from(node_path))
             .expect("Only one node can exist at once!");
@@ -102,32 +99,14 @@ impl Node {
     }
 
     /// Connect to a specified peer
-    async fn connect_peer(
+    pub async fn connect_peer(
         node: Arc<RwLock<Node>>,
         address: SocketAddr,
     ) -> Result<(Arc<RwLock<Peer>>, JoinHandle<Result<(), PeerError>>), NodeError> {
-        let peer = Arc::new(RwLock::new(Peer::new(address)));
+        let peer: Arc<RwLock<Peer>> = Arc::new(RwLock::new(Peer::new(address, false)));
         let stream = TcpStream::connect(address).await?;
 
-        let on_fail = |peer: Arc<RwLock<Peer>>, node: Arc<RwLock<Node>>| {
-            Box::pin(async move {
-                Peer::kill(peer.clone()).await;
-                let peer_address = peer.read().await.address;
-
-                let mut node_peers = node.write().await;
-
-                let mut new_peers = Vec::new();
-                for p in node_peers.peers.drain(..) {
-                    let p_address = p.read().await.address;
-                    if p_address != peer_address {
-                        new_peers.push(p);
-                    }
-                }
-
-                node_peers.peers = new_peers;
-            }) as Pin<Box<dyn futures::Future<Output = ()> + Send + 'static>>
-        };
-        let handle = Peer::connect(peer.clone(), node, on_fail, stream).await;
+        let handle = Peer::connect(peer.clone(), node, stream).await;
 
         Ok((peer, handle))
     }
@@ -138,14 +117,12 @@ impl Node {
     pub async fn init(
         node: Arc<RwLock<Node>>,
         seed_nodes: Vec<SocketAddr>,
-    ) -> Result<JoinHandle<Result<(), NodeError>>, NodeError> {
-        let mut peer_handles = Vec::new();
+    ) -> Result<JoinHandle<Result<(), ServerError>>, NodeError> {
         let mut peers = Vec::new();
 
         for addr in seed_nodes {
-            let (peer, handle) = Self::connect_peer(node.clone(), addr).await?;
+            let (peer, _) = Self::connect_peer(node.clone(), addr).await?;
             peers.push(peer);
-            peer_handles.push(handle);
         }
 
         node.write().await.peers = peers;
@@ -154,125 +131,9 @@ impl Node {
             Server.init(node.clone(), node.read().await.port).await;
 
         let node = node.clone();
-        let auto_peer = tokio::spawn(async move {
-            loop {
-                // wait before next peer fetch
-                sleep(Duration::from_secs(30)).await;
+        auto_peer(node.clone());
 
-                // pull a snapshot of peer list and config outside the lock
-                let (peers_snapshot, target_peers) = {
-                    let guard = node.read().await;
-                    (guard.peers.clone(), guard.target_peers)
-                };
-
-                // do we need more peers?
-                if peers_snapshot.len() < target_peers {
-                    // pick a known peer to ask for more peers
-                    if let Some(fetch_peer) = peers_snapshot.get(0) {
-                        // request peers without holding any lock
-                        let response =
-                            Peer::request(fetch_peer.clone(), Message::new(Command::GetPeers))
-                                .await;
-
-                        // request failed?
-                        let Ok(response) = response else {
-                            Node::log(format!(
-                                "Could not request peers from {}",
-                                fetch_peer.read().await.address,
-                            ));
-                            continue;
-                        };
-
-                        match response.command {
-                            Command::SendPeers { peers } => {
-                                for peer_str in peers {
-                                    // parse address
-                                    let addr = match SocketAddr::from_str(&peer_str) {
-                                        Ok(a) => a,
-                                        Err(_) => {
-                                            Node::log(format!("Fetched peer had invalid address"));
-                                            continue;
-                                        }
-                                    };
-
-                                    // Check if already connected
-                                    let exists = {
-                                        let mut exists = false;
-                                        let guard = node.read().await;
-                                        for p in &guard.peers {
-                                            if p.read().await.address.ip() == addr.ip()
-                                                && p.read().await.address.port() == addr.port()
-                                            {
-                                                exists = true;
-                                                break;
-                                            }
-                                        }
-                                        exists
-                                    };
-
-                                    if exists {
-                                        continue;
-                                    }
-
-                                    // Connect to fetched peer
-                                    let new_peer = Node::connect_peer(node.clone(), addr).await;
-                                    match new_peer {
-                                        Ok(..) => {}
-                                        Err(..) => {
-                                            continue;
-                                        }
-                                    }
-
-                                    Node::log(format!(
-                                        "Connected to new peer (referred by {})",
-                                        fetch_peer.read().await.address
-                                    ));
-
-                                    // Re-check peer count
-                                    let peer_count = {
-                                        let guard = node.read().await;
-                                        guard.peers.len()
-                                    };
-
-                                    if peer_count >= target_peers {
-                                        break;
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-
-            #[allow(unused)]
-            Ok::<(), NodeError>(())
-        });
-
-        let all_handle = tokio::spawn(async move {
-            let auto_peer_error = match auto_peer.await {
-                Ok(Ok(_)) => Ok(()),
-                Ok(Err(e)) => Err(e),
-                Err(e) => Err(NodeError::JoinError(e)),
-            };
-            if auto_peer_error.is_err() {
-                return Err(auto_peer_error.err().unwrap());
-            }
-
-            // Run all peer connections concurrently
-            if let Err(join_err) = try_join_all(peer_handles).await {
-                return Err(NodeError::JoinError(join_err));
-            }
-
-            // Await server result
-            match server_handle.await {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(NodeError::ServerError(e)),
-                Err(e) => Err(NodeError::JoinError(e)),
-            }
-        });
-
-        Ok(all_handle)
+        Ok(server_handle)
     }
 
     /// Send some message to all peers
@@ -354,10 +215,6 @@ impl Node {
             }),
         )
         .await;
-        Node::log(format!(
-            "Submitting new tx {}",
-            new_transaction.transaction_id.unwrap().dump_base36()
-        ));
         Ok(())
     }
 

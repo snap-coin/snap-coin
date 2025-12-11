@@ -3,7 +3,7 @@ A rust crate for developing with and for Snap Coin
 
 # Some General Tips
 1. Default binary to string serialization is `base36` (letters + numbers only).
-2. Most helper functions (like `build_block(...)`, `build_transaction(...)`) take a blockchain data provider (this is a trait!), which is a struct that can access basic blockchain data and perform certain fetches etc. These are most commonly `core::Node.blockchain` and `api::Client`.
+2. Most helper functions (like `build_block(...)`, `build_transaction(...)`) take a blockchain data provider (this is a trait!), which is a struct that can access basic blockchain data and perform certain fetches etc. These are most commonly `core::blockchain::Blockchain` and `api::client::Client`.
 
 # Getting started
 ## Installation
@@ -20,7 +20,7 @@ Your program becomes the node, and you have direct access over its blockchain, p
 This is **the fastest approach** as you directly interface with the node, without any translation layer in between.
 
 1.
-    Create a new node instance (**WARNING:** Only one instance can exist in a  program at once otherwise a panic will happen!)
+    Create a new node instance (**WARNING:** Only one instance can exist in one program at once, otherwise a panic will happen!)
     ```rust
     let node: Arc<RwLock<Node>> = Node::new("./node-path", 8998); // Path where the node will be stored, port to host node
     ```
@@ -87,7 +87,7 @@ This approach makes your program a API client to a node that is already hosted (
     ```
 
 # Documentation and Development Reference
-Available here: [rust.rs](https://docs.rs/snap-coin/latest/)
+Available here: [docs.rs](https://docs.rs/snap-coin/latest/)
 
 # Support this Project
 You can support this project in many ways, but it is best to just develop and use Snap Coin. I take pride in this project, and by extent in this code. You can help us grow, as Snap Coin is a community effort, by creating apps that utilize Snap Coin, trading, using it as a medium of exchange for things like jobs.

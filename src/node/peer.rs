@@ -1,5 +1,4 @@
 use bincode::error::EncodeError;
-use std::pin::Pin;
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
@@ -15,7 +14,7 @@ use tokio::{
 };
 
 use crate::{
-    core::{blockchain::BlockchainError, transaction::TransactionId, utxo::TransactionError},
+    core::{blockchain::BlockchainError, utxo::TransactionError},
     node::{
         message::{Command, Message, MessageError},
         node::Node,
@@ -56,57 +55,54 @@ pub enum PeerError {
     EncodeError(#[from] EncodeError),
 }
 
+pub const TIMEOUT: Duration = Duration::from_secs(15);
+
 /// A struct representing one peer (peer connection. Can be both a client peer or a connected peer)
 pub struct Peer {
     pub address: SocketAddr,
+
+    pub is_client: bool,
 
     // Outgoing messages waiting to be written to stream
     send_queue: VecDeque<Message>,
 
     // Pending requests waiting for a response (id -> oneshot sender)
     pending: HashMap<u16, oneshot::Sender<Message>>,
-
-    // Shutdown flag
-    shutdown: bool,
-
-    seen_transactions: VecDeque<TransactionId>,
 }
 
 impl Peer {
     /// Create a new peer
-    pub fn new(address: SocketAddr) -> Self {
+    pub fn new(address: SocketAddr, is_client: bool) -> Self {
         Self {
             address,
+            is_client,
             send_queue: VecDeque::new(),
             pending: HashMap::new(),
-            shutdown: false,
-            seen_transactions: VecDeque::new(),
         }
     }
 
-    /// Immediately terminates the peer connection
-    pub async fn kill(peer: Arc<RwLock<Peer>>) {
-        let mut p = peer.write().await;
-        p.shutdown = true;
-        p.send_queue.clear();
+    async fn on_fail(peer: Arc<RwLock<Peer>>, node: Arc<RwLock<Node>>) {
+        let peer_address = peer.read().await.address;
+
+        let mut node_peers = node.write().await;
+
+        let mut new_peers = Vec::new();
+        for p in node_peers.peers.drain(..) {
+            let p_address = p.read().await.address;
+            if p_address != peer_address {
+                new_peers.push(p);
+            }
+        }
+
+        node_peers.peers = new_peers;
     }
 
     /// Main connection handler
-    pub async fn connect<F>(
+    pub async fn connect(
         peer: Arc<RwLock<Peer>>,
         node: Arc<RwLock<Node>>,
-        on_fail: F,
         stream: TcpStream,
-    ) -> JoinHandle<Result<(), PeerError>>
-    where
-        F: Fn(
-                Arc<RwLock<Peer>>,
-                Arc<RwLock<Node>>,
-            ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
-            + Send
-            + Sync
-            + 'static,
-    {
+    ) -> JoinHandle<Result<(), PeerError>> {
         let (mut read_stream, mut write_stream) = stream.into_split();
 
         // Spawn peer handler task
@@ -120,18 +116,12 @@ impl Peer {
                 let node = node.clone();
                 Box::pin(async move {
                     loop {
-                        {
-                            let p = peer.read().await;
-                            if p.shutdown {
-                                return Ok(());
-                            }
-                        }
-                        sleep(Duration::from_secs(5)).await; // 5 second ping interval
+                        let height = node.read().await.blockchain.get_height();
                         match Peer::request(
                             // Send Ping and wait for Pong
                             peer.clone(),
                             Message::new(Command::Ping {
-                                height: node.read().await.blockchain.get_height(),
+                                height,
                             }),
                         )
                         .await?
@@ -140,6 +130,7 @@ impl Peer {
                             Command::Pong { .. } => {}
                             _ => {}
                         }
+                        sleep(Duration::from_secs(5)).await; // 5 second ping interval
                     }
                     #[allow(unreachable_code)]
                     Ok::<(), PeerError>(())
@@ -152,14 +143,16 @@ impl Peer {
                 let node = node.clone();
                 Box::pin(async move {
                     loop {
-                        {
-                            let p = peer.read().await;
-                            if p.shutdown {
-                                return Err(PeerError::Disconnected);
-                            }
-                        }
                         let msg = Message::from_stream(&mut read_stream).await?;
-                        Peer::handle_incoming(peer.clone(), node.clone(), msg).await;
+                        match timeout(
+                            TIMEOUT,
+                            Peer::handle_incoming(peer.clone(), node.clone(), msg),
+                        )
+                        .await
+                        {
+                            Ok(()) => {}
+                            Err(..) => return Err(PeerError::Disconnected),
+                        }
                     }
                     #[allow(unreachable_code)]
                     Ok::<(), PeerError>(())
@@ -171,20 +164,16 @@ impl Peer {
                 let peer = peer.clone();
                 Box::pin(async move {
                     loop {
-                        {
-                            let p = peer.read().await;
-                            if p.shutdown {
-                                return Err(PeerError::Disconnected);
-                            }
-                        }
-
                         let maybe_msg = {
                             let mut p = peer.write().await;
                             p.send_queue.pop_front()
                         };
 
                         if let Some(msg) = maybe_msg {
-                            msg.send(&mut write_stream).await?;
+                            match timeout(TIMEOUT, msg.send(&mut write_stream)).await {
+                                Ok(e) => e?,
+                                Err(..) => return Err(PeerError::Disconnected),
+                            }
                         } else {
                             sleep(Duration::from_millis(10)).await;
                         }
@@ -210,8 +199,9 @@ impl Peer {
                 ));
                 let peer_cloned = peer_cloned.clone();
                 let node_cloned = node_cloned.clone();
+
                 tokio::spawn(async move {
-                    on_fail(peer_cloned, node_cloned).await;
+                    Self::on_fail(peer_cloned, node_cloned).await;
                 });
             }
             Ok(())
@@ -282,6 +272,9 @@ impl Peer {
                         let node_read = node.read().await;
                         let mut peer_addrs = Vec::new();
                         for p in &node_read.peers {
+                            if p.read().await.is_client {
+                                continue;
+                            }
                             let p_addr = p.read().await.address.to_string();
                             peer_addrs.push(p_addr);
                         }
@@ -306,12 +299,7 @@ impl Peer {
                 }
                 Command::NewTransaction { ref transaction } => {
                     // Check if transaction was already seen
-                    if peer
-                        .read()
-                        .await
-                        .seen_transactions
-                        .contains(&transaction.transaction_id.unwrap())
-                    {
+                    if !node.read().await.mempool.validate_transaction(transaction).await {
                         return Ok(());
                     }
 
@@ -387,11 +375,16 @@ impl Peer {
     }
 
     /// Send this message to all peers but this one
-    pub async fn send_to_peers(peer: Arc<RwLock<Peer>>, node: Arc<RwLock<Node>>, message: Message) {
-        for i_peer in &node.read().await.peers {
-            if !Arc::ptr_eq(&i_peer, &peer) {
-                Peer::send(Arc::clone(i_peer), message.clone()).await;
-            }
+    pub async fn send_to_peers(node: Arc<RwLock<Node>>, message: Message) {
+        // clone the peer list while holding the lock, then drop the lock
+        let peers = {
+            let guard = node.read().await;
+            guard.peers.clone()
+        };
+
+        for peer in peers {
+            // now safe to await
+            Peer::send(peer, message.clone()).await;
         }
     }
 }
