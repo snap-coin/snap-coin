@@ -1,6 +1,6 @@
 [package]
 name = "snap-coin"
-version = "2.2.1"
+version = "2.3.0"
 edition = "2024"
 authors = ["Ice"]
 description = "The core library for developing and using Snap Coin"

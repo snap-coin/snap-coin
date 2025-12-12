@@ -1,5 +1,5 @@
 use num_bigint::BigUint;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::{
     fs,
     net::SocketAddr,
@@ -247,5 +247,49 @@ impl Node {
             msg
         )
         .expect("Failed to write to logging file");
+    }
+
+    pub fn get_last_log() -> String {
+        let mut log_file = fs::OpenOptions::new()
+            .read(true)
+            .open(
+                NODE_PATH
+                    .get()
+                    .expect("One blockchain instance must exist before logging")
+                    .to_owned()
+                    + "/info.log",
+            )
+            .expect("Could not open logging file!");
+
+        let mut contents = String::new();
+        log_file
+            .read_to_string(&mut contents)
+            .expect("Failed to read logging file");
+
+        // Split by newlines and get the last line
+        contents.lines().last().unwrap_or("").to_string()
+    }
+
+    pub fn pop_last_line() -> Option<String> {
+        let path = NODE_PATH
+            .get()
+            .expect("One blockchain instance must exist before logging")
+            .to_owned()
+            + "/info.log";
+
+        // Read the full log
+        let contents = fs::read_to_string(&path).ok()?;
+
+        // Split into lines
+        let mut lines: Vec<&str> = contents.lines().collect();
+
+        // Pop the last line
+        let last_line = lines.pop().map(|s| s.to_string());
+
+        // Write back the remaining lines
+        let new_contents = lines.join("\n");
+        fs::write(&path, new_contents).ok()?;
+
+        last_line
     }
 }
