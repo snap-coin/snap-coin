@@ -249,6 +249,7 @@ impl Node {
         .expect("Failed to write to logging file");
     }
 
+    /// Get last logged line
     pub fn get_last_log() -> String {
         let mut log_file = fs::OpenOptions::new()
             .read(true)
@@ -270,6 +271,7 @@ impl Node {
         contents.lines().last().unwrap_or("").to_string()
     }
 
+    /// Get last popped line
     pub fn pop_last_line() -> Option<String> {
         let path = NODE_PATH
             .get()
