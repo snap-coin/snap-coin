@@ -116,13 +116,12 @@ impl Peer {
                 let node = node.clone();
                 Box::pin(async move {
                     loop {
+                        sleep(Duration::from_secs(5)).await; // 5 second ping interval
                         let height = node.read().await.blockchain.get_height();
                         match Peer::request(
                             // Send Ping and wait for Pong
                             peer.clone(),
-                            Message::new(Command::Ping {
-                                height,
-                            }),
+                            Message::new(Command::Ping { height }),
                         )
                         .await?
                         .command
@@ -130,7 +129,6 @@ impl Peer {
                             Command::Pong { .. } => {}
                             _ => {}
                         }
-                        sleep(Duration::from_secs(5)).await; // 5 second ping interval
                     }
                     #[allow(unreachable_code)]
                     Ok::<(), PeerError>(())
@@ -294,7 +292,13 @@ impl Peer {
                 }
                 Command::NewTransaction { ref transaction } => {
                     // Check if transaction was already seen
-                    if !node.read().await.mempool.validate_transaction(transaction).await {
+                    if !node
+                        .read()
+                        .await
+                        .mempool
+                        .validate_transaction(transaction)
+                        .await
+                    {
                         return Ok(());
                     }
 
