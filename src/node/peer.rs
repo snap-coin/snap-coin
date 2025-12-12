@@ -239,28 +239,30 @@ impl Peer {
                     )
                     .await;
 
-                    // Spawn async task that will independently sync to this node if needed
-                    tokio::spawn(async move {
-                        if local_height < height {
-                            Node::log(format!("[SYNC] Starting sync!"));
-                            {
-                                let mut node = node.write().await;
-                                if node.is_syncing {
-                                    return;
-                                }
-                                node.is_syncing = true;
-                            }
-                            match sync_to_peer(node.clone(), Arc::clone(&peer), height).await {
-                                Ok(()) => {
-                                    Node::log(format!("[SYNC] Complete!"));
-                                }
-                                Err(e) => {
-                                    Node::log(format!("[SYNC] Failed to sync! {}", e.to_string()));
-                                }
-                            }
-                            node.write().await.is_syncing = false;
+                    // Only spawn the sync task if we are allowed to sync
+                    let should_sync = {
+                        let mut node = node.write().await;
+                        if node.is_syncing {
+                            false
+                        } else {
+                            node.is_syncing = true;
+                            true
                         }
-                    });
+                    };
+
+                    if should_sync && local_height < height {
+                        tokio::spawn(async move {
+                            let result = sync_to_peer(node.clone(), peer.clone(), height).await;
+
+                            if let Err(e) = result {
+                                Node::log(format!("[SYNC] Failed: {}", e));
+                            } else {
+                                Node::log(format!("[SYNC] Completed"));
+                            }
+
+                            node.write().await.is_syncing = false;
+                        });
+                    }
                 }
                 Command::Pong { .. } => {
                     Node::log(format!("Got unhandled Pong"));
