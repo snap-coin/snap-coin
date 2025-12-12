@@ -41,9 +41,16 @@ impl Block {
     }
 
     /// Get this blocks hashing buffer required to mine this transaction. Essentially makes sure that any hash attached to this block is not included in the block hashing buffer
+    /// WARNING: Slow
     pub fn get_hashing_buf(&self) -> Result<Vec<u8>, EncodeError> {
         let mut hash_less_block = self.clone();
-        hash_less_block.hash = None;
+        hash_less_block.hash = None; // Remove hash
+        
+        // Remove all transaction inputs because, we can just hash the transaction hash and keep the integrity
+        for transaction in &mut hash_less_block.transactions {
+            transaction.inputs = vec![];
+            transaction.outputs = vec![];
+        }
         bincode::encode_to_vec(hash_less_block, bincode::config::standard())
     }
 
