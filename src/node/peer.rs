@@ -239,19 +239,12 @@ impl Peer {
                     )
                     .await;
 
-                    // Only spawn the sync task if we are allowed to sync
-                    let should_sync = {
-                        let mut node = node.write().await;
-                        if node.is_syncing {
-                            false
-                        } else {
-                            node.is_syncing = true;
-                            true
-                        }
-                    };
-
-                    if should_sync && local_height < height {
+                    if local_height < height {
                         tokio::spawn(async move {
+                            if node.read().await.is_syncing {
+                                return;
+                            }
+                            node.write().await.is_syncing = true;
                             let result = sync_to_peer(node.clone(), peer.clone(), height).await;
 
                             if let Err(e) = result {
