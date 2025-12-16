@@ -190,7 +190,7 @@ impl Peer {
 
             if let Err(e) = result {
                 Node::log(format!(
-                    "Disconnected peer: {}:{}. Error: {:?}",
+                    "Disconnected from peer: {}:{}. Error: {:?}",
                     peer.read().await.address.ip(),
                     peer.read().await.address.port(),
                     e
@@ -248,7 +248,11 @@ impl Peer {
                             let result = sync_to_peer(node.clone(), peer.clone(), height).await;
 
                             if let Err(e) = result {
-                                Node::log(format!("[SYNC] Failed: {}", e));
+                                Node::log(format!("[SYNC] Failed: {}, disconnecting from {}", e, peer.read().await.address));
+                                let node = node.clone();
+                                tokio::spawn(async move {
+                                    Peer::on_fail(peer, node).await;
+                                });
                             } else {
                                 Node::log(format!("[SYNC] Completed"));
                             }
