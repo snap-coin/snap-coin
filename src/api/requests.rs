@@ -142,33 +142,33 @@ pub enum Response {
 }
 
 impl Response {
-    /// Serialize into a u8 buffer (first 2 bytes = length)
+    /// Serialize into a u8 buffer (first 4 bytes = length)
     pub fn encode(self) -> Result<Vec<u8>, RequestResponseError> {
         let response_string =
             serde_json::to_string(&self).map_err(|_| RequestResponseError::EncodingFailed)?;
         let response_bytes = response_string.as_bytes();
         let response_length = response_bytes.len();
 
-        if response_length > u16::MAX as usize {
+        if response_length > u32::MAX as usize {
             return Err(RequestResponseError::MalformedData);
         }
 
-        let mut buf = vec![0u8; response_length + 2];
-        buf[0..2].copy_from_slice(&(response_length as u16).to_be_bytes());
-        buf[2..].copy_from_slice(response_bytes);
+        let mut buf = vec![0u8; response_length + 4];
+        buf[0..4].copy_from_slice(&(response_length as u32).to_be_bytes());
+        buf[4..].copy_from_slice(response_bytes);
 
         Ok(buf)
     }
 
     /// Blocking deserialize from TcpStream
     pub async fn decode_from_stream(stream: &mut TcpStream) -> Result<Self, RequestResponseError> {
-        let mut size_buf = [0u8; 2];
+        let mut size_buf = [0u8; 4];
         stream
             .read_exact(&mut size_buf)
             .await
             .map_err(|_| RequestResponseError::Stream)?;
 
-        let response_size = u16::from_be_bytes(size_buf) as usize;
+        let response_size = u32::from_be_bytes(size_buf) as usize;
         let mut response_buf = vec![0u8; response_size];
 
         stream
