@@ -308,7 +308,7 @@ impl Peer {
                 }
                 Command::NewBlock { ref block } => {
                     // Make sure block is not in the blockchain
-                    if Some(node.read().await.last_seen_block) != block.hash {
+                    if Some(node.read().await.last_seen_block) != block.hash && !node.read().await.is_syncing {
                         Node::submit_block(node.clone(), block.clone()).await?;
                     }
                 }
