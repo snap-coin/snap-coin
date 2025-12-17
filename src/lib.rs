@@ -36,7 +36,9 @@ pub use economics::to_nano;
 
 use crate::{
     blockchain_data_provider::{BlockchainDataProvider, BlockchainDataProviderError},
-    crypto::keys::{Private, Public}, economics::GENESIS_PREVIOUS_BLOCK_HASH,
+    core::{block::MAX_TRANSACTIONS, transaction::MAX_TRANSACTION_IO},
+    crypto::keys::{Private, Public},
+    economics::GENESIS_PREVIOUS_BLOCK_HASH,
 };
 
 #[derive(Error, Debug)]
@@ -51,7 +53,15 @@ pub enum UtilError {
     EncodeError(#[from] EncodeError),
 
     #[error("Data provider error {0}")]
-    BlockchainDataProviderError(#[from] BlockchainDataProviderError)
+    BlockchainDataProviderError(#[from] BlockchainDataProviderError),
+
+    #[error(
+        "Too many inputs and outputs for one transaction. Consider splitting transaction in to more than one (smaller SNAP amount) or less receivers."
+    )]
+    TooMuchIO,
+
+    #[error("Too many transactions for block")]
+    TooManyTransactions,
 }
 
 /// Build a new transactions, sending from sender to receiver where each receiver has a amount to receive attached. Takes biggest coins first.
@@ -60,13 +70,18 @@ pub async fn build_transaction<B>(
     blockchain_data_provider: &B,
     sender: Private,
     mut receivers: Vec<(Public, u64)>,
-) -> Result<Transaction, UtilError> where B: BlockchainDataProvider {
+) -> Result<Transaction, UtilError>
+where
+    B: BlockchainDataProvider,
+{
     let target_balance = receivers
         .iter()
         .fold(0u64, |acc, receiver| acc + receiver.1);
 
-    let available_inputs = blockchain_data_provider.get_available_transaction_outputs(sender.to_public()).await?;
-    
+    let available_inputs = blockchain_data_provider
+        .get_available_transaction_outputs(sender.to_public())
+        .await?;
+
     let mut used_inputs = vec![];
 
     let mut current_funds = 0u64;
@@ -84,6 +99,10 @@ pub async fn build_transaction<B>(
 
     if target_balance < current_funds {
         receivers.push((sender.to_public(), current_funds - target_balance));
+    }
+
+    if used_inputs.len() + receivers.len() > MAX_TRANSACTION_IO {
+        return Err(UtilError::TooMuchIO);
     }
 
     used_inputs.sort_by(|a, b| a.1.amount.cmp(&b.1.amount)); // From highest amount to lowest amount (breadcrumbs last)
@@ -118,7 +137,10 @@ pub async fn build_block<B>(
     blockchain_data_provider: &B,
     transactions: &Vec<Transaction>,
     miner: Public,
-) -> Result<Block, UtilError> where B: BlockchainDataProvider {
+) -> Result<Block, UtilError>
+where
+    B: BlockchainDataProvider,
+{
     let reward = get_block_reward(blockchain_data_provider.get_height().await?);
     let mut transactions = transactions.clone();
     transactions.push(Transaction::new_transaction_now(
@@ -135,14 +157,31 @@ pub async fn build_block<B>(
         ],
         &mut vec![],
     )?);
+    if transactions.len() > MAX_TRANSACTIONS {
+        return Err(UtilError::TooManyTransactions);
+    }
     let reward_tx_i = transactions.len() - 1;
-    transactions[reward_tx_i]
-        .compute_pow(&blockchain_data_provider.get_transaction_difficulty().await?, None)?;
+    transactions[reward_tx_i].compute_pow(
+        &blockchain_data_provider
+            .get_transaction_difficulty()
+            .await?,
+        None,
+    )?;
     let block = Block::new_block_now(
         transactions,
         &blockchain_data_provider.get_block_difficulty().await?,
-        &blockchain_data_provider.get_transaction_difficulty().await?,
-        blockchain_data_provider.get_block_hash_by_height(blockchain_data_provider.get_height().await?.saturating_sub(1)).await?.unwrap_or(GENESIS_PREVIOUS_BLOCK_HASH)
+        &blockchain_data_provider
+            .get_transaction_difficulty()
+            .await?,
+        blockchain_data_provider
+            .get_block_hash_by_height(
+                blockchain_data_provider
+                    .get_height()
+                    .await?
+                    .saturating_sub(1),
+            )
+            .await?
+            .unwrap_or(GENESIS_PREVIOUS_BLOCK_HASH),
     );
 
     Ok(block)
