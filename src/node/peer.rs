@@ -68,6 +68,8 @@ pub struct Peer {
 
     // Pending requests waiting for a response (id -> oneshot sender)
     pending: HashMap<u16, oneshot::Sender<Message>>,
+
+    shutdown: bool,
 }
 
 impl Peer {
@@ -78,6 +80,7 @@ impl Peer {
             is_client,
             send_queue: VecDeque::new(),
             pending: HashMap::new(),
+            shutdown: false,
         }
     }
 
@@ -117,6 +120,9 @@ impl Peer {
                 Box::pin(async move {
                     loop {
                         sleep(Duration::from_secs(5)).await;
+                        if peer_outer.read().await.shutdown {
+                            return Err(PeerError::Disconnected);
+                        }
 
                         let height = node_outer.read().await.blockchain.get_height();
 
@@ -153,6 +159,7 @@ impl Peer {
                                             e,
                                             peer_for_task.read().await.address
                                         ));
+                                        peer_for_task.write().await.shutdown = true;
 
                                         let node_for_task = node_for_task.clone();
                                         Peer::on_fail(peer_for_task, node_for_task).await;
@@ -176,6 +183,9 @@ impl Peer {
                 let node = node.clone();
                 Box::pin(async move {
                     loop {
+                        if peer.read().await.shutdown {
+                            return Err(PeerError::Disconnected);
+                        }
                         let msg = Message::from_stream(&mut read_stream).await?;
                         match timeout(
                             TIMEOUT,
@@ -197,6 +207,9 @@ impl Peer {
                 let peer = peer.clone();
                 Box::pin(async move {
                     loop {
+                        if peer.read().await.shutdown {
+                            return Err(PeerError::Disconnected);
+                        }
                         let maybe_msg = {
                             let mut p = peer.write().await;
                             p.send_queue.pop_front()
