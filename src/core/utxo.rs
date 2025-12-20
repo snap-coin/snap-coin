@@ -1,59 +1,14 @@
 use bincode::{Decode, Encode};
-use chrono::Utc;
 use num_bigint::BigUint;
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
 };
-use thiserror::Error;
 
 use crate::{
-    core::transaction::{self, Transaction, TransactionId, TransactionOutput},
+    core::transaction::{self, Transaction, TransactionError, TransactionId, TransactionOutput},
     crypto::keys::Public,
 };
-
-#[derive(Error, Debug)]
-pub enum TransactionError {
-    #[error("Transaction timestamp is in the future: {0}")]
-    FutureTimestamp(u64),
-
-    #[error("Transaction missing ID")]
-    MissingId,
-
-    #[error("Transaction hash is invalid: {0}")]
-    InvalidHash(String),
-
-    #[error("Transaction hash does not meet required difficulty: {0}")]
-    InsufficientDifficulty(String),
-
-    #[error("Transaction has no inputs")]
-    NoInputs,
-
-    #[error("Transaction input not found in UTXOs: {0}")]
-    InputNotFound(String),
-
-    #[error("Transaction input index invalid for transaction {tx_id}: {input_tx_id}")]
-    InvalidInputIndex { tx_id: String, input_tx_id: String },
-
-    #[error("Referenced transaction input is already spent")]
-    SpentInputIndex,
-
-    #[error("Transaction input signature is invalid for transaction {0}")]
-    InvalidSignature(String),
-
-    #[error("Double spending detected in the same transaction {0}")]
-    DoubleSpend(String),
-
-    #[error("Transaction output amount cannot be zero for transaction {0}")]
-    ZeroOutput(String),
-
-    #[error("Transaction inputs and outputs don't sum up to same amount for transaction {0}")]
-    SumMismatch(String),
-
-    #[error("Transaction has too many inputs or outputs")]
-    TooManyIO,
-}
-
 /// This represents a singular transaction undo, or a whole block, essentially we need to extend each of these lists to combine with other utxo diffs (prob. from other tx's)
 #[derive(Encode, Decode, Debug, Clone)]
 pub struct UTXODiff {
@@ -99,16 +54,8 @@ impl UTXOs {
         let tx_id = transaction
             .transaction_id
             .ok_or(TransactionError::MissingId)?;
-        let input_signing_buf = transaction
-            .get_input_signing_buf()
-            .map_err(|_| TransactionError::InvalidHash(tx_id.dump_base36()))?;
-        let transaction_hashing_buf = transaction
-            .get_tx_hashing_buf()
-            .map_err(|_| TransactionError::InvalidHash(tx_id.dump_base36()))?;
-
-        if transaction.timestamp > Utc::now().timestamp() as u64 {
-            return Err(TransactionError::FutureTimestamp(transaction.timestamp));
-        }
+        let input_signing_buf = transaction.get_input_signing_buf()?;
+        let transaction_hashing_buf = transaction.get_tx_hashing_buf()?;
 
         if !tx_id.compare_with_data(&transaction_hashing_buf) {
             return Err(TransactionError::InvalidHash(tx_id.dump_base36()));
@@ -125,7 +72,7 @@ impl UTXOs {
         }
 
         if transaction.inputs.len() + transaction.outputs.len() > transaction::MAX_TRANSACTION_IO {
-            return Err(TransactionError::TooManyIO);
+            return Err(TransactionError::TooMuchIO);
         }
 
         let mut used_utxos: HashSet<(TransactionId, usize)> = HashSet::new();

@@ -149,7 +149,7 @@ impl Node {
         node: Arc<RwLock<Node>>,
         new_block: Block,
     ) -> Result<(), BlockchainError> {
-        node.write().await.last_seen_block = new_block.hash.unwrap();
+        node.write().await.last_seen_block = new_block.meta.hash.unwrap();
         
         node.write().await.blockchain.add_block(new_block.clone())?;
         validate_block_timestamp(&new_block)?;
@@ -177,7 +177,7 @@ impl Node {
 
         Node::log(format!(
             "New block accepted: {}",
-            new_block.hash.unwrap().dump_base36()
+            new_block.meta.hash.unwrap().dump_base36()
         ));
         Ok(())
     }

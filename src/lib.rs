@@ -9,7 +9,7 @@ use core::{
 };
 
 /// Snap Coin API for accessing blockchain data from different programs
-pub mod api;
+// pub mod api;
 
 /// Provides a standardized way to access blockchain data from many sources
 pub mod blockchain_data_provider;
@@ -21,7 +21,7 @@ pub mod core;
 pub mod crypto;
 
 /// Node struct for hosting a P2P Snap Coin node
-pub mod node;
+pub mod nodev2;
 
 /// Tests
 mod tests;

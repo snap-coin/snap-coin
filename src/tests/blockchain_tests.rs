@@ -9,7 +9,7 @@ use crate::{
         blockchain::Blockchain,
         difficulty::{STARTING_BLOCK_DIFFICULTY, STARTING_TX_DIFFICULTY},
         transaction::TransactionOutput,
-    }, crypto::keys::Private, node::mempool::MemPool
+    }, crypto::keys::Private
 };
 
 fn new_tmp_blockchain() -> Blockchain {
@@ -151,37 +151,37 @@ async fn test_transaction_validation() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_mempool() -> Result<(), anyhow::Error> {
-    let private = Private::new_random();
-    let public = private.to_public();
+// #[tokio::test]
+// async fn test_mempool() -> Result<(), anyhow::Error> {
+//     let private = Private::new_random();
+//     let public = private.to_public();
 
-    let mut bc = new_tmp_blockchain();
-    let mempool = MemPool::new();
+//     let mut bc = new_tmp_blockchain();
+//     let mempool = MemPool::new();
 
-    // Create some genesis block and add it
-    let mut block = build_block(&bc, &vec![], public).await?;
-    #[allow(deprecated)]
-    block.compute_pow()?;
-    bc.add_block(block)?;
+//     // Create some genesis block and add it
+//     let mut block = build_block(&bc, &vec![], public).await?;
+//     #[allow(deprecated)]
+//     block.compute_pow()?;
+//     bc.add_block(block)?;
 
-    let mut new_tx = build_transaction(&bc, private, vec![(public, 100)], vec![]).await?;
-    new_tx.compute_pow(&bc.get_transaction_difficulty(), None)?;
+//     let mut new_tx = build_transaction(&bc, private, vec![(public, 100)], vec![]).await?;
+//     new_tx.compute_pow(&bc.get_transaction_difficulty(), None)?;
 
-    assert!(mempool.validate_transaction(&new_tx).await, "Transaction invalidly flagged for double spending");
-    mempool.add_transaction(new_tx).await;
-    let mut new_tx = build_transaction(&bc, private, vec![(public, 100)], vec![]).await?;
-    new_tx.compute_pow(&bc.get_transaction_difficulty(), None)?;
+//     assert!(mempool.validate_transaction(&new_tx).await, "Transaction invalidly flagged for double spending");
+//     mempool.add_transaction(new_tx).await;
+//     let mut new_tx = build_transaction(&bc, private, vec![(public, 100)], vec![]).await?;
+//     new_tx.compute_pow(&bc.get_transaction_difficulty(), None)?;
 
-    assert!(!mempool.validate_transaction(&new_tx).await, "Transaction not flagged for double spending");
+//     assert!(!mempool.validate_transaction(&new_tx).await, "Transaction not flagged for double spending");
     
-    // Create an new block and add it (WITHOUT THE MEMPOOL TX!)
-    let mut block = build_block(&bc, &mempool.get_mempool().await, public).await?;
-    #[allow(deprecated)]
-    block.compute_pow()?;
-    bc.add_block(block)?;
+//     // Create an new block and add it (WITHOUT THE MEMPOOL TX!)
+//     let mut block = build_block(&bc, &mempool.get_mempool().await, public).await?;
+//     #[allow(deprecated)]
+//     block.compute_pow()?;
+//     bc.add_block(block)?;
 
-    assert!(!mempool.validate_transaction(&new_tx).await, "Transaction not flagged for double spending");
+//     assert!(!mempool.validate_transaction(&new_tx).await, "Transaction not flagged for double spending");
 
-    Ok(())
-}
+//     Ok(())
+// }

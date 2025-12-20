@@ -7,10 +7,10 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::blockchain_data_provider::BlockchainDataProvider;
-use crate::core::block::{Block, MAX_TRANSACTIONS};
-use crate::core::difficulty::{DifficultyManager, calculate_block_difficulty};
-use crate::core::transaction::{Transaction, TransactionId};
-use crate::core::utxo::{TransactionError, UTXODiff, UTXOs};
+use crate::core::block::{Block, BlockError, MAX_TRANSACTIONS};
+use crate::core::difficulty::DifficultyManager;
+use crate::core::transaction::{Transaction, TransactionError, TransactionId};
+use crate::core::utxo::{UTXODiff, UTXOs};
 use crate::crypto::Hash;
 use crate::economics::{
     DEV_WALLET, EXPIRATION_TIME, GENESIS_PREVIOUS_BLOCK_HASH, calculate_dev_fee, get_block_reward,
@@ -27,17 +27,8 @@ pub enum BlockchainError {
     #[error("Bincode encode error: {0}")]
     BincodeEncode(String),
 
-    #[error("Block hash mismatch. Expected {expected}, got {actual}")]
-    HashMismatch { expected: String, actual: String },
-
-    #[error("Block timestamp is in the future: {0}")]
-    FutureTimestamp(u64),
-
-    #[error("Invalid block / transaction difficulty")]
-    InvalidDifficulty,
-
     #[error("Block does not have a hash attached")]
-    MissingHash,
+    IncompleteBlock,
 
     #[error("Transaction is invalid: {0}")]
     InvalidTransaction(String),
@@ -63,6 +54,9 @@ pub enum BlockchainError {
     #[error("No blocks to to pop")]
     NoBlocksToPop,
 
+    #[error("Block to pop was not found")]
+    BlockNotFound,
+
     #[error("Block or transaction timestamp is invalid or expired")]
     InvalidTimestamp,
 
@@ -71,6 +65,9 @@ pub enum BlockchainError {
 
     #[error("Block has too many transactions")]
     TooManyTransactions,
+
+    #[error("Block error: {0}")]
+    BlockError(#[from] BlockError),
 }
 
 impl From<TransactionError> for BlockchainError {
@@ -177,52 +174,23 @@ impl Blockchain {
     /// Add a block to the blockchain, and then save the state of it
     /// Will return a blockchain error if the block or any of its included transactions are invalid
     pub fn add_block(&mut self, new_block: Block) -> Result<(), BlockchainError> {
-        let block_hash = new_block.hash.ok_or(BlockchainError::MissingHash)?;
+        new_block.check_meta()?;
 
-        if !block_hash.compare_with_data(
-            &new_block
-                .get_hashing_buf()
-                .map_err(|e| BlockchainError::BincodeEncode(e.to_string()))?,
-        ) {
-            return Err(BlockchainError::HashMismatch {
-                expected: Hash::new(
-                    &new_block
-                        .get_hashing_buf()
-                        .map_err(|e| BlockchainError::BincodeEncode(e.to_string()))?,
-                )
-                .dump_base36(),
-                actual: block_hash.dump_base36(),
-            });
-        }
+        new_block.validate_difficulties(
+            &self.get_block_difficulty(),
+            &self.get_transaction_difficulty(),
+        )?;
 
-        if new_block.timestamp > chrono::Utc::now().timestamp() as u64 {
-            return Err(BlockchainError::FutureTimestamp(new_block.timestamp));
-        }
-
-        if new_block.block_pow_difficulty != self.difficulty_manager.block_difficulty
-            || new_block.tx_pow_difficulty != self.difficulty_manager.transaction_difficulty
-        {
-            return Err(BlockchainError::InvalidDifficulty);
-        }
-
-        if self.get_height() == 0 && new_block.previous_block != GENESIS_PREVIOUS_BLOCK_HASH {
+        if self.get_height() == 0 && new_block.meta.previous_block != GENESIS_PREVIOUS_BLOCK_HASH {
+            // Validate previous hash
             return Err(BlockchainError::InvalidPreviousBlockHash);
         } else if self.get_height() != 0
             && *self
                 .get_block_hash_by_height(self.get_height() - 1)
                 .unwrap()
-                != new_block.previous_block
+                != new_block.meta.previous_block
         {
             return Err(BlockchainError::InvalidPreviousBlockHash);
-        }
-
-        if BigUint::from_bytes_be(&*block_hash)
-            > BigUint::from_bytes_be(&calculate_block_difficulty(
-                &self.difficulty_manager.block_difficulty,
-                new_block.transactions.len(),
-            ))
-        {
-            return Err(BlockchainError::InvalidDifficulty);
         }
 
         if new_block.transactions.len() > MAX_TRANSACTIONS {
@@ -293,7 +261,8 @@ impl Blockchain {
         }
 
         self.difficulty_manager.update_difficulty(&new_block);
-        self.block_lookup.insert(block_hash, self.height);
+        self.block_lookup
+            .insert(new_block.meta.hash.unwrap(), self.height);
 
         // Encode and save block
         let mut file = File::create(self.block_path_by_height(self.height))
@@ -325,10 +294,10 @@ impl Blockchain {
 
         let recalled_block = self
             .get_block_by_height(self.height - 1)
-            .ok_or(BlockchainError::MissingHash)?;
+            .ok_or(BlockchainError::BlockNotFound)?;
         let utxo_diffs = self
             .get_utxo_diffs_by_height(self.height - 1)
-            .ok_or(BlockchainError::MissingHash)?;
+            .ok_or(BlockchainError::BlockNotFound)?;
 
         // Rollback UTXOs
         self.utxos.recall_block_utxos(utxo_diffs);
@@ -343,8 +312,8 @@ impl Blockchain {
         self.height -= 1;
 
         // Update difficulty manager
-        self.difficulty_manager.block_difficulty = recalled_block.block_pow_difficulty;
-        self.difficulty_manager.transaction_difficulty = recalled_block.tx_pow_difficulty;
+        self.difficulty_manager.block_difficulty = recalled_block.meta.block_pow_difficulty;
+        self.difficulty_manager.transaction_difficulty = recalled_block.meta.tx_pow_difficulty;
         if self.height > 0
             && let Some(last_block) = self.get_block_by_height(self.height - 1)
         {
@@ -354,7 +323,7 @@ impl Blockchain {
         }
 
         // Save cache
-        self.block_lookup.remove(&recalled_block.hash.unwrap());
+        self.block_lookup.remove(&recalled_block.meta.hash.unwrap());
         self.save_cache()?;
 
         Ok(())

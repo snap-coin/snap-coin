@@ -2,6 +2,7 @@ use bincode::{Decode, Encode, error::EncodeError};
 use num_bigint::BigUint;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::crypto::{
     Hash, Signature,
@@ -12,6 +13,48 @@ use crate::crypto::{
 pub type TransactionId = Hash;
 
 pub const MAX_TRANSACTION_IO: usize = 150;
+
+#[derive(Error, Debug)]
+pub enum TransactionError {
+    #[error("{0}")]
+    EncodeError(#[from] EncodeError),
+
+    #[error("Transaction missing ID")]
+    MissingId,
+
+    #[error("Transaction hash is invalid: {0}")]
+    InvalidHash(String),
+
+    #[error("Transaction hash does not meet required difficulty: {0}")]
+    InsufficientDifficulty(String),
+
+    #[error("Transaction has no inputs")]
+    NoInputs,
+
+    #[error("Transaction input not found in UTXOs: {0}")]
+    InputNotFound(String),
+
+    #[error("Transaction input index invalid for transaction {tx_id}: {input_tx_id}")]
+    InvalidInputIndex { tx_id: String, input_tx_id: String },
+
+    #[error("Referenced transaction input is already spent")]
+    SpentInputIndex,
+
+    #[error("Transaction input signature is invalid for transaction {0}")]
+    InvalidSignature(String),
+
+    #[error("Double spending detected in the same transaction {0}")]
+    DoubleSpend(String),
+
+    #[error("Transaction output amount cannot be zero for transaction {0}")]
+    ZeroOutput(String),
+
+    #[error("Transaction inputs and outputs don't sum up to same amount for transaction {0}")]
+    SumMismatch(String),
+
+    #[error("Transaction has too many inputs or outputs")]
+    TooMuchIO,
+}
 
 /// A transaction input, that are funding a set transaction output, that must exist in the current utxo set
 #[derive(Encode, Decode, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

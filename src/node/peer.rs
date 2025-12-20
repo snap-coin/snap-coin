@@ -14,7 +14,7 @@ use tokio::{
 };
 
 use crate::{
-    core::{blockchain::BlockchainError, utxo::TransactionError},
+    core::{block::BlockError, blockchain::BlockchainError, transaction::TransactionError},
     node::{
         message::{Command, Message, MessageError},
         node::Node,
@@ -53,6 +53,9 @@ pub enum PeerError {
 
     #[error("Encode error: {0}")]
     EncodeError(#[from] EncodeError),
+
+    #[error("Block error: {0}")]
+    BlockError(#[from] BlockError)
 }
 
 pub const TIMEOUT: Duration = Duration::from_secs(15);
@@ -308,7 +311,7 @@ impl Peer {
                 }
                 Command::NewBlock { ref block } => {
                     // Make sure block is not in the blockchain
-                    if Some(node.read().await.last_seen_block) != block.hash && !node.read().await.is_syncing {
+                    if Some(node.read().await.last_seen_block) != block.meta.hash && !node.read().await.is_syncing {
                         Node::submit_block(node.clone(), block.clone()).await?;
                     }
                 }

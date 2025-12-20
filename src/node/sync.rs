@@ -1,4 +1,3 @@
-use num_bigint::BigUint;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -88,22 +87,10 @@ pub async fn sync_to_peer(
             }
         };
 
-        // Basic validation
-        // TODO: Make more robust. Possibly split into validate block and add block functions?
-        let block_hash = block.hash.ok_or(PeerError::NoBlockHash)?;
+        // Validate block meta
+        block.check_meta()?;
 
-        // Verify PoW difficulty
-        let hash_val = BigUint::from_bytes_be(&*block_hash);
-        let target = BigUint::from_bytes_be(&block.block_pow_difficulty);
-        if hash_val > target {
-            return Err(PeerError::BadBlockDifficulty);
-        }
-
-        // Recompute and verify block hash
-        let recomputed = Hash::new(&block.get_hashing_buf()?);
-        if block_hash != recomputed {
-            return Err(PeerError::BadBlockHash);
-        }
+        block.validate_difficulties(&node.read().await.blockchain.get_block_difficulty(), &node.read().await.blockchain.get_transaction_difficulty())?;
 
         new_blocks.push(block);
     }
@@ -148,7 +135,7 @@ pub async fn sync_to_peer(
 
         // Append downloaded blocks in order
         for block in new_blocks {
-            Node::log(format!("[SYNC] Adding block, current height: {}, Block hash: {}", node_guard.blockchain.get_height(), match block.hash {
+            Node::log(format!("[SYNC] Adding block, current height: {}, Block hash: {}", node_guard.blockchain.get_height(), match block.meta.hash {
                 Some(hash) => hash.dump_base36(),
                 None => "<missing hash>".to_owned()
             }));
