@@ -133,7 +133,7 @@ async fn test_api(
 #[tokio::test]
 async fn test_node() -> Result<(), anyhow::Error> {
     let node_path = "/tmp/node-".to_string() + &(random::<u64>()).to_string();
-    let (blockchain, node_state) = create_node(&node_path);
+    let (blockchain, node_state) = create_node(&node_path, true);
 
     test_mempool(&blockchain, &node_state).await?;
     reset_bc(&blockchain).await;

@@ -26,18 +26,22 @@ pub type SharedBlockchain = Arc<Blockchain>;
 
 static LOGGER_INIT: Once = Once::new();
 
-pub fn create_node(node_path: &str) -> (SharedBlockchain, SharedNodeState) {
+pub fn create_node(node_path: &str, disable_stdout: bool) -> (SharedBlockchain, SharedNodeState) {
     let node_path = PathBuf::from(node_path);
 
-    // Only initialize the logger once
     LOGGER_INIT.call_once(|| {
         let log_path = node_path.join("logs");
         std::fs::create_dir_all(&log_path).expect("Failed to create log directory");
 
-        Logger::try_with_str("info")
+        let mut logger = Logger::try_with_str("info")
             .unwrap()
-            .log_to_file(FileSpec::default().directory(&log_path))
-            .duplicate_to_stderr(Duplicate::Info)
+            .log_to_file(FileSpec::default().directory(&log_path));
+
+        if !disable_stdout {
+            logger = logger.duplicate_to_stderr(Duplicate::Info);
+        }
+
+        logger
             .start()
             .ok(); // Ignore errors if logger is already set
 
@@ -53,6 +57,7 @@ pub fn create_node(node_path: &str) -> (SharedBlockchain, SharedNodeState) {
             .to_str()
             .expect("Failed to create node path"),
     );
+
     (Arc::new(blockchain), node_state)
 }
 
