@@ -1,12 +1,10 @@
 use log::info;
 
 use crate::{
-    core::blockchain::BlockchainError,
-    node::{
+    core::blockchain::BlockchainError, full_node::SharedBlockchain, node::{
         message::{Command, Message},
-        node::SharedBlockchain,
         peer::PeerHandle,
-    },
+    }
 };
 
 #[derive(thiserror::Error, Debug)]

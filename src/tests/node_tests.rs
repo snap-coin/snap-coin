@@ -5,10 +5,7 @@ use crate::{
     blockchain_data_provider::BlockchainDataProvider,
     build_block, build_transaction,
     crypto::keys::Private,
-    node::{
-        node::{SharedBlockchain, accept_block, accept_transaction, create_node},
-        node_state::SharedNodeState,
-    },
+    full_node::{SharedBlockchain, accept_block, accept_transaction, create_full_node, node_state::SharedNodeState},
     to_nano,
 };
 
@@ -133,7 +130,7 @@ async fn test_api(
 #[tokio::test]
 async fn test_node() -> Result<(), anyhow::Error> {
     let node_path = "/tmp/node-".to_string() + &(random::<u64>()).to_string();
-    let (blockchain, node_state) = create_node(&node_path, true);
+    let (blockchain, node_state) = create_full_node(&node_path, true);
 
     test_mempool(&blockchain, &node_state).await?;
     reset_bc(&blockchain).await;

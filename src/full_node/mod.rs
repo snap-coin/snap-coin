@@ -1,3 +1,21 @@
+/// Listens for incoming peer connections
+pub mod p2p_server;
+
+/// Handles public node discovery, and connection. A daemon
+pub mod auto_peer;
+
+/// Stores all currently pending transactions, that are waiting to be mined
+pub mod mempool;
+
+/// Stores current node state, shared between threads
+pub mod node_state;
+
+/// Handles full node on message logic
+mod behavior;
+
+/// Enforces longest chain rule, syncs to a peer that has a higher height
+mod sync;
+
 use flexi_logger::{Duplicate, FileSpec, Logger};
 use futures::future::join_all;
 use log::{error, info};
@@ -15,18 +33,19 @@ use crate::{
         blockchain::{self, Blockchain, BlockchainError},
         transaction::Transaction,
     },
-    node::{
-        message::{Command, Message},
-        node_state::{NodeState, SharedNodeState},
-        peer::{PeerError, PeerHandle, create_peer},
-    },
+    full_node::{behavior::FullNodePeerBehavior, node_state::{NodeState, SharedNodeState}},
+    node::{message::{Command, Message}, peer::{PeerError, PeerHandle, create_peer}},
 };
 
 pub type SharedBlockchain = Arc<Blockchain>;
 
 static LOGGER_INIT: Once = Once::new();
 
-pub fn create_node(node_path: &str, disable_stdout: bool) -> (SharedBlockchain, SharedNodeState) {
+/// Creates a full node (SharedBlockchain and SharedNodeState), connecting to peers, accepting blocks and transactions
+pub fn create_full_node(
+    node_path: &str,
+    disable_stdout: bool,
+) -> (SharedBlockchain, SharedNodeState) {
     let node_path = PathBuf::from(node_path);
 
     LOGGER_INIT.call_once(|| {
@@ -69,7 +88,11 @@ pub async fn connect_peer(
         .await
         .map_err(|e| PeerError::Io(format!("IO error: {e}")))?;
 
-    let handle = create_peer(stream, blockchain.clone(), node_state.clone(), false)?;
+    let handle = create_peer(
+        stream,
+        FullNodePeerBehavior::new(blockchain.clone(), node_state.clone()),
+        false,
+    )?;
     node_state
         .connected_peers
         .write()

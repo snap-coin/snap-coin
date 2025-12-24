@@ -17,8 +17,14 @@ pub mod core;
 /// Contains all crypto primitives
 pub mod crypto;
 
-/// Node struct for hosting a P2P Snap Coin node
+/// Handles the basic P2P protocol of a node
 pub mod node;
+
+/// Full node logic
+pub mod full_node;
+
+/// Light node logic
+pub mod light_node;
 
 /// A struct for interacting with a node instance through the Snap Coin API
 pub mod api;

@@ -8,12 +8,7 @@ use log::{error, info};
 use rand::seq::IteratorRandom;
 use tokio::{task::JoinHandle, time::sleep};
 
-use crate::node::{
-    message::{Command, Message},
-    node::{SharedBlockchain, connect_peer},
-    node_state::SharedNodeState,
-    peer::{PeerError, PeerHandle},
-};
+use crate::{full_node::{SharedBlockchain, connect_peer, node_state::SharedNodeState}, node::{message::{Command, Message}, peer::{PeerError, PeerHandle}}};
 
 /// Amount of peers, that the node is trying to achieve stable connections with
 pub const TARGET_PEERS: usize = 12;

@@ -11,10 +11,7 @@ use crate::{
     blockchain_data_provider::BlockchainDataProvider,
     core::{transaction::TransactionError, utils::slice_vec},
     economics::get_block_reward,
-    node::{
-        node::{SharedBlockchain, accept_block, accept_transaction},
-        node_state::SharedNodeState,
-    },
+    full_node::{SharedBlockchain, accept_block, accept_transaction, node_state::SharedNodeState},
 };
 
 pub const PAGE_SIZE: u32 = 200;

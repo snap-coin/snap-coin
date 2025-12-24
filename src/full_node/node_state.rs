@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::sync::{RwLock, watch};
 
-use crate::{core::transaction::TransactionId, crypto::Hash, node::{mempool::MemPool, peer::PeerHandle}};
+use crate::{core::transaction::TransactionId, crypto::Hash, full_node::mempool::MemPool, node::peer::PeerHandle};
 
 pub type SharedNodeState = Arc<NodeState>;
 

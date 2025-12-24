@@ -19,11 +19,7 @@ use thiserror::Error;
 use crate::{
     core::blockchain::BlockchainError,
     node::{
-        message::{Command, Message, MessageId},
-        node::SharedBlockchain,
-        node_state::SharedNodeState,
-        on_message::on_message,
-        sync::SyncError,
+        message::{Command, Message, MessageId},peer_behavior::SharedPeerBehavior
     },
 };
 
@@ -76,12 +72,6 @@ pub enum PeerError {
 
     #[error("Sync error: {0}")]
     SyncError(String),
-}
-
-impl From<SyncError> for PeerError {
-    fn from(sync_error: SyncError) -> Self {
-        Self::SendError(sync_error.to_string())
-    }
 }
 
 /// Used to reference, request, and kill
@@ -137,8 +127,7 @@ impl PeerHandle {
 /// Create a new peer, start internal tasks, and return a PeerHandle
 pub fn create_peer(
     stream: TcpStream,
-    blockchain: SharedBlockchain,
-    node_state: SharedNodeState,
+    behavior: SharedPeerBehavior,
     is_client: bool,
 ) -> Result<PeerHandle, PeerError> {
     let address = stream
@@ -157,7 +146,8 @@ pub fn create_peer(
     let my_handle = handle.clone();
 
     tokio::spawn(async move {
-        let node_state_fail = node_state.clone();
+        let behavior_on_kill = behavior.clone();
+        let my_handle_on_kill = my_handle.clone();
         if let Err(e) = async move {
             let (reader, writer) = stream.into_split();
 
@@ -165,9 +155,9 @@ pub fn create_peer(
                 Arc::new(Mutex::new(HashMap::<MessageId, oneshot::Sender<Message>>::new()));
 
             tokio::select! {
-                res = reader_task(reader, pending.clone(), my_handle.clone(), blockchain.clone(), node_state) => res,
+                res = reader_task(reader, pending.clone(), my_handle.clone(), behavior.clone()) => res,
                 res = writer_task(writer, outgoing_rx, pending) => res,
-                res = pinger_task(my_handle, blockchain) => res,
+                res = pinger_task(my_handle, behavior.clone()) => res,
                 res = async move {
                     let message = should_kill
                         .await
@@ -181,11 +171,7 @@ pub fn create_peer(
         .await
         {
             tokio::spawn(async move {
-                node_state_fail
-                    .connected_peers
-                    .write()
-                    .await
-                    .remove(&address);
+                behavior_on_kill.on_kill(&my_handle_on_kill).await;
                 error!("Peer error (disconnected): {e}");
             });
             
@@ -199,8 +185,7 @@ async fn reader_task(
     mut stream: OwnedReadHalf,
     pending: Pending,
     my_handle: PeerHandle,
-    blockchain: SharedBlockchain,
-    node_state: SharedNodeState,
+    behavior: SharedPeerBehavior
 ) -> Result<(), PeerError> {
     loop {
         let message = Message::from_stream(&mut stream)
@@ -210,7 +195,7 @@ async fn reader_task(
         if let Some(requester) = pending.lock().await.remove(&message.id) {
             let _ = requester.send(message);
         } else {
-            let response = on_message(message, &my_handle, &blockchain, &node_state).await?;
+            let response = behavior.on_message(message, &my_handle).await?;
             my_handle.send(response).await?;
         }
     }
@@ -241,13 +226,13 @@ async fn writer_task(
 
 async fn pinger_task(
     my_handle: PeerHandle,
-    blockchain: SharedBlockchain,
+    behavior: SharedPeerBehavior
 ) -> Result<(), PeerError> {
     loop {
         sleep(PEER_PING_INTERVAL).await;
         my_handle.request(
             Message::new(Command::Ping {
-                height: blockchain.block_store().get_height(),
+                height: behavior.get_height().await,
             }),
         )
         .await?;

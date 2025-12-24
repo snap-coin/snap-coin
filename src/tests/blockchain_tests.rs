@@ -9,7 +9,7 @@ use crate::{
         blockchain::Blockchain,
         difficulty::{STARTING_BLOCK_DIFFICULTY, STARTING_TX_DIFFICULTY},
         transaction::TransactionOutput,
-    }, crypto::{address_inclusion_filter::AddressInclusionFilter, keys::Private}, node::mempool::MemPool
+    }, crypto::{address_inclusion_filter::AddressInclusionFilter, keys::Private}, full_node::mempool::MemPool
 };
 
 fn new_tmp_blockchain() -> Blockchain {
