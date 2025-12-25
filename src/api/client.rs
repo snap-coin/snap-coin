@@ -149,6 +149,15 @@ impl Client {
             }
         }
     }
+
+    pub async fn get_live_transaction_difficulty(&self) -> Result<[u8; 32], BlockchainDataProviderError> {
+        match self.fetch(Request::LiveTransactionDifficulty).await? {
+            Response::LiveTransactionDifficulty { live_difficulty } => {
+                return Ok(live_difficulty)
+            }
+            _ => return Err(RequestResponseError::IncorrectResponse.into())
+        }
+    }
 }
 
 #[async_trait::async_trait]

@@ -47,6 +47,7 @@ pub enum Request {
     Mempool { page: u32 },
     NewBlock { new_block: Block },
     NewTransaction { new_transaction: Transaction },
+    LiveTransactionDifficulty,
 }
 
 impl Request {
@@ -138,6 +139,9 @@ pub enum Response {
     },
     NewTransaction {
         status: Result<(), BlockchainError>,
+    },
+    LiveTransactionDifficulty {
+        live_difficulty: [u8; 32],
     },
 }
 

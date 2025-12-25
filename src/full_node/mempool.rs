@@ -93,4 +93,8 @@ impl MemPool {
         // Clean up empty expiry buckets
         pending.retain(|_, txs| !txs.is_empty());
     }
+
+    pub async fn mempool_size(&self) -> usize {
+        self.pending.read().await.values().fold(0, |acc, txs| acc + txs.len())
+    }
 }

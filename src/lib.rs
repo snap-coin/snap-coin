@@ -43,7 +43,7 @@ pub use economics::to_nano;
 use crate::{
     blockchain_data_provider::{BlockchainDataProvider, BlockchainDataProviderError},
     core::{
-        block::MAX_TRANSACTIONS,
+        block::MAX_TRANSACTIONS_PER_BLOCK,
         transaction::{MAX_TRANSACTION_IO, TransactionError},
     },
     crypto::{
@@ -187,7 +187,7 @@ where
         &mut vec![],
     )?);
 
-    if transactions.len() > MAX_TRANSACTIONS {
+    if transactions.len() > MAX_TRANSACTIONS_PER_BLOCK {
         return Err(UtilError::TooManyTransactions);
     }
     let reward_tx_i = transactions.len() - 1;

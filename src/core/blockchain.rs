@@ -11,9 +11,9 @@ use thiserror::Error;
 
 use crate::{
     core::{
-        block::{Block, BlockError, MAX_TRANSACTIONS},
+        block::{Block, BlockError, MAX_TRANSACTIONS_PER_BLOCK},
         block_store::{BlockStore, BlockStoreError},
-        difficulty::DifficultyManager,
+        difficulty::DifficultyState,
         transaction::{Transaction, TransactionError, TransactionId},
         utxo::{UTXODiff, UTXOs},
     },
@@ -85,6 +85,9 @@ pub enum BlockchainError {
 
     #[error("Address inclusion filter is incorrect")]
     IncorrectAddressInclusionFilter,
+
+    #[error("Live transaction difficulty not beat")]
+    LiveTransactionDifficulty,
 }
 
 impl From<TransactionError> for BlockchainError {
@@ -96,7 +99,7 @@ impl From<TransactionError> for BlockchainError {
 /// BlockchainData is an object used for storing and loading current blockchain state.
 #[derive(Encode, Decode, Debug, Clone)]
 struct BlockchainData {
-    difficulty_manager: DifficultyManager,
+    difficulty_state: DifficultyState,
     block_store: BlockStore,
 }
 
@@ -106,7 +109,7 @@ pub struct Blockchain {
     blockchain_path: String,
     block_store: BlockStore,
     utxos: UTXOs,
-    difficulty_manager: DifficultyManager,
+    difficulty_manager: DifficultyState,
 }
 
 impl Blockchain {
@@ -127,14 +130,14 @@ impl Blockchain {
                 return Blockchain {
                     block_store: blockchain_data.block_store,
                     utxos: UTXOs::new(blockchain_path.clone()),
-                    difficulty_manager: blockchain_data.difficulty_manager,
+                    difficulty_manager: blockchain_data.difficulty_state,
                     blockchain_path,
                 };
             }
             Err(_) => {
                 return Blockchain {
                     utxos: UTXOs::new(blockchain_path.clone()),
-                    difficulty_manager: DifficultyManager::new_default(
+                    difficulty_manager: DifficultyState::new_default(
                         chrono::Utc::now().timestamp() as u64,
                     ),
                     block_store: BlockStore::new_empty(&format!("{}blocks/", blockchain_path)),
@@ -159,7 +162,7 @@ impl Blockchain {
         let mut file = File::create(format!("{}blockchain.dat", self.blockchain_path))
             .map_err(|e| BlockchainError::Io(e.to_string()))?;
         let blockchain_data = BlockchainData {
-            difficulty_manager: self.difficulty_manager.clone(),
+            difficulty_state: self.difficulty_manager.clone(),
             block_store: self.block_store().clone(),
         };
         file.sync_all()
@@ -192,7 +195,7 @@ impl Blockchain {
         }
 
         // Check if we don't have too many TXs
-        if new_block.transactions.len() > MAX_TRANSACTIONS {
+        if new_block.transactions.len() > MAX_TRANSACTIONS_PER_BLOCK {
             return Err(BlockchainError::TooManyTransactions);
         }
 
@@ -319,7 +322,7 @@ impl Blockchain {
         &self.utxos
     }
 
-    pub fn get_difficulty_manager(&self) -> &DifficultyManager {
+    pub fn get_difficulty_manager(&self) -> &DifficultyState {
         &self.difficulty_manager
     }
 

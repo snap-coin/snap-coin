@@ -9,7 +9,7 @@ use crate::{
     crypto::{Hash, address_inclusion_filter::AddressInclusionFilter, merkle_tree::MerkleTree},
 };
 
-pub const MAX_TRANSACTIONS: usize = 500;
+pub const MAX_TRANSACTIONS_PER_BLOCK: usize = 500;
 
 #[derive(Error, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
 pub enum BlockError {

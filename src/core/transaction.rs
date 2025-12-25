@@ -119,15 +119,16 @@ impl Transaction {
     }
 
     /// Mine this transaction (aka. compute POW to allow it to be placed in the network)
+    /// WARNING: You most likely want to supply this function with the LIVE transaction difficulty, which is adjusted for mempool difficulty pressure
     /// WARNING: This is single threaded and needs to complete before a new block is mined on the network as otherwise tx_difficulty becomes invalid, and so the transaction too
     /// Difficulty margin can be used to prevent the behavior mentioned above, however it will lead to a longer compute time. The bugger difficulty margin is, the more likely is the transaction to be valid next block.
     /// Difficulty margin is a multiplier by how much harder does the actual difficulty need to be
     pub fn compute_pow(
         &mut self,
-        tx_difficulty: &[u8; 32],
+        live_tx_difficulty: &[u8; 32],
         difficulty_margin: Option<f64>,
     ) -> Result<(), EncodeError> {
-        let mut target = BigUint::from_bytes_be(tx_difficulty);
+        let mut target = BigUint::from_bytes_be(live_tx_difficulty);
 
         if let Some(margin) = difficulty_margin {
             if margin > 0.0 {

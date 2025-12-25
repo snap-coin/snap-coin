@@ -2,7 +2,6 @@ use rand::random;
 
 use crate::{
     api::{api_server::Server, client::Client},
-    blockchain_data_provider::BlockchainDataProvider,
     build_block, build_transaction,
     crypto::keys::Private,
     full_node::{SharedBlockchain, accept_block, accept_transaction, create_full_node, node_state::SharedNodeState},
@@ -42,7 +41,7 @@ async fn test_mempool(
     )
     .await?;
 
-    some_tx.compute_pow(&blockchain.get_transaction_difficulty(), None)?;
+    some_tx.compute_pow(&node_state.get_live_transaction_difficulty(blockchain.get_transaction_difficulty()).await, None)?;
 
     assert!(
         node_state.mempool.get_mempool().await.is_empty(),
@@ -99,7 +98,7 @@ async fn test_api(
 
     // Create some transaction
     let mut some_tx = build_transaction(&client, private1, vec![(public1, 100)], vec![]).await?;
-    some_tx.compute_pow(&client.get_transaction_difficulty().await?, None)?;
+    some_tx.compute_pow(&client.get_live_transaction_difficulty().await?, None)?;
 
     // Submit this tx
     client.submit_transaction(some_tx).await??;

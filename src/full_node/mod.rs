@@ -33,8 +33,14 @@ use crate::{
         blockchain::{self, Blockchain, BlockchainError},
         transaction::Transaction,
     },
-    full_node::{behavior::FullNodePeerBehavior, node_state::{NodeState, SharedNodeState}},
-    node::{message::{Command, Message}, peer::{PeerError, PeerHandle, create_peer}},
+    full_node::{
+        behavior::FullNodePeerBehavior,
+        node_state::{NodeState, SharedNodeState},
+    },
+    node::{
+        message::{Command, Message},
+        peer::{PeerError, PeerHandle, create_peer},
+    },
 };
 
 pub type SharedBlockchain = Arc<Blockchain>;
@@ -180,6 +186,15 @@ pub async fn accept_transaction(
 ) -> Result<(), BlockchainError> {
     new_transaction.check_completeness()?;
     let transaction_id = new_transaction.transaction_id.unwrap(); // Unwrap is okay, we checked that tx is complete
+
+    if BigUint::from_bytes_be(
+        &node_state
+            .get_live_transaction_difficulty(blockchain.get_transaction_difficulty())
+            .await,
+    ) < BigUint::from_bytes_be(&*transaction_id)
+    {
+        return Err(BlockchainError::LiveTransactionDifficulty);
+    }
 
     if node_state.last_seen_transaction() == transaction_id {
         return Ok(()); // We already processed this tx

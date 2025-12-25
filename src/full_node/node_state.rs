@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::sync::{RwLock, watch};
 
-use crate::{core::transaction::TransactionId, crypto::Hash, full_node::mempool::MemPool, node::peer::PeerHandle};
+use crate::{core::{difficulty::calculate_live_transaction_difficulty, transaction::TransactionId}, crypto::Hash, full_node::mempool::MemPool, node::peer::PeerHandle};
 
 pub type SharedNodeState = Arc<NodeState>;
 
@@ -48,5 +48,9 @@ impl NodeState {
     /// Set a new last seen transaction
     pub fn set_last_seen_transaction(&self, tx_id: TransactionId) {
         let _ = self.last_seen_transaction_writer.send(tx_id);
+    }
+
+    pub async fn get_live_transaction_difficulty(&self, transaction_difficulty: [u8; 32]) -> [u8; 32] {
+        calculate_live_transaction_difficulty(&transaction_difficulty, self.mempool.mempool_size().await)
     }
 }

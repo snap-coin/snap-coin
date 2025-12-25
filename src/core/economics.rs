@@ -1,4 +1,7 @@
-use crate::crypto::{Hash, keys::Public};
+use crate::{
+    core::block::MAX_TRANSACTIONS_PER_BLOCK,
+    crypto::{Hash, keys::Public},
+};
 
 /// Convert NANO amount (internal way of storing funds as u64s), smallest grain of one coin possible to avoid
 pub const NANO_TO_SNAP: f64 = 100_000_000f64;
@@ -30,7 +33,10 @@ pub const DEV_WALLET: Public = Public::new_from_buf(&[
 pub const DEV_FEE: f64 = 0.02;
 
 /// Percent of difficulty decayed per every transaction included in block
-pub const DIFFICULTY_DECAY_PER_TX: f64 = 0.005;
+pub const DIFFICULTY_DECAY_PER_TRANSACTION: f64 = 0.005;
+
+/// Percent by which the transaction difficulty is increased (compound) per tx already in mempool
+pub const MEMPOOL_PRESSURE_PER_TRANSACTION: f64 = (1 / MAX_TRANSACTIONS_PER_BLOCK) as f64;
 
 /// Transaction expiration time
 pub const EXPIRATION_TIME: u64 = TARGET_TIME * 10;
