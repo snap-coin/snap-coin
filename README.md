@@ -22,36 +22,34 @@ This is **the fastest approach** as you directly interface with the node, withou
 1.
     Create a new node instance (**WARNING:** Only one instance can exist in one program at once, otherwise a panic will happen!)
     ```rust
-    let node: Arc<RwLock<Node>> = Node::new("./node-path", 8998); // Path where the node will be stored, port to host node
+    let (blockchain, node_state) = create_full_node("./node-path", false); // Path where the node will be stored, do not disable stdout
     ```
-    Notice how `new()` returns a `Arc<RwLock<Node>>` instead of just a node. This is due to the fact that the node is passed around the internal code a lot and this abstractions makes it async safe.
+    Notice how `create_full_node()` returns a `(SharedBlockchain, SharedNodeState)` instead of just a node. This is because there isn't a node struct and interacting with any blockchain or node functions is done through these references. The `SharedBlockchain` type represents a internally mutable blockchain, that can be used to atomically get blockchain data. The `SharedNodeState` type represents the mutable node state (internally hidden behind `RwLock`'s).
 2.
     Call and access functions of the node
     ```rust
-    Node::submit_block(node.clone(), some_block).await?;
-    println!("Last block: {}", node.read().await.last_seen_block.dump_base_36());
+    accept_block(&blockchain, &node_state, some_new_block).await?;
+    println!("Last block: {}", blockchain.block_store().get_last_block_hash().dump_base_36());
     ```
-    Notice how we clone the node, and call a static function on the `Node` struct. **WARNING:** When accessing direct values from the `Node` struct, make sure to call `node.read().await` or `node.write().await` if the internal state of the node will be modified by this operation.
 3. Full example:
     ```rust
-    use snap_coin::{build_block, crypto::keys::Private, node::node::Node};
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use snap_coin::{build_block, crypto::keys::Private, full_node::{accept_block, create_full_node}};
 
     #[tokio::main]
     async fn main() -> Result<(), anyhow::Error> {
-        let node: Arc<RwLock<Node>> = Node::new("./node-path", 8998);
+        let (blockchain, node_state) = create_full_node("./node-devnet", false);
 
-        let mut some_block = build_block(&node.read().await.blockchain, &vec![], Private::new_random().to_public()).await?; // Path where the node will be stored, port to host node
+        let mut some_block = build_block(&*blockchain, &vec![], Private::new_random().to_public()).await?; // Path where the node will be stored, do not disable stdout
         #[allow(deprecated)] // This is deprecated because it only works on a not congested network, with only 1 miner. Okay for creating genesis blocks
         some_block.compute_pow()?;
 
-        Node::submit_block(node.clone(), some_block).await?; // Notice we clone the node, and call a static function on the Node struct
-        println!("Last block: {}", node.read().await.last_seen_block.dump_base36());
+        accept_block(&blockchain, &node_state, some_block).await?; // Notice we borrow the node references
+        println!("Last block: {}", blockchain.block_store().get_last_block_hash().dump_base36());
 
         Ok(())
     }
     ```
+    This example only includes basic node functions that allow your project to directly participate in the network. To connect to other peers look into `connect_peer()`, to allow other peers to connect to your node look into `start_p2p_server()`. To listen to chain events look into the `NodeState`'s `ChainEvent`.
 
 ### As a Snap Coin API interface with an existing node (***EASY***)
 This approach makes your program a API client to a node that is already hosted (like snap-coin-node) by your user. This approach is slower and does not have full direct access to the node, however, it is a lot more lightweight then the approach mentioned before. This should be used when **there will be more then one instance of this program running**, for example a wallet can just connect to a hosted node (by the user) instead of being its own node. It is important to understand that the node this client will be connecting too must be **100% trusted** as it can modify, spoof, and fake all interactions with this program.
@@ -68,7 +66,7 @@ This approach makes your program a API client to a node that is already hosted (
     ```
 3. Full Example:
     ```rust
-    use snap_coin::{api::client::Client, blockchain_data_provider::BlockchainDataProvider, build_block, crypto::keys::Private, node::node::Node};
+    use snap_coin::{api::client::Client, blockchain_data_provider::BlockchainDataProvider, build_block, crypto::keys::Private};
 
     #[tokio::main]
     async fn main() -> Result<(), anyhow::Error> {
