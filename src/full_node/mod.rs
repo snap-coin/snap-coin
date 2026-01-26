@@ -203,6 +203,14 @@ pub async fn accept_transaction(
     new_transaction.check_completeness()?;
     let transaction_id = new_transaction.transaction_id.unwrap(); // Unwrap is okay, we checked that tx is complete
 
+    if node_state
+        .last_seen_transactions()
+        .contains(&transaction_id)
+    {
+        return Ok(()); // We already processed this tx
+    }
+    node_state.add_last_seen_transaction(transaction_id);
+
     if BigUint::from_bytes_be(
         &node_state
             .get_live_transaction_difficulty(blockchain.get_transaction_difficulty())
@@ -211,14 +219,6 @@ pub async fn accept_transaction(
     {
         return Err(BlockchainError::LiveTransactionDifficulty);
     }
-
-    if node_state
-        .last_seen_transactions()
-        .contains(&transaction_id)
-    {
-        return Ok(()); // We already processed this tx
-    }
-    node_state.add_last_seen_transaction(transaction_id);
 
     // Validation
     blockchain::validate_transaction_timestamp(&new_transaction)?;
