@@ -209,12 +209,12 @@ impl Server {
 
     /// Start listening for clients
     pub async fn listen(self) -> Result<(), ApiError> {
-        let listener = match TcpListener::bind(format!("127.0.0.1:{}", self.port)).await {
+        let listener = match TcpListener::bind(format!("0.0.0.0:{}", self.port)).await {
             Ok(l) => l,
-            Err(_) => TcpListener::bind("127.0.0.1:0").await?,
+            Err(_) => TcpListener::bind("0.0.0.0:0").await?,
         };
         info!(
-            "API Server listening on 127.0.0.1:{}",
+            "API Server listening on 0.0.0.0:{}",
             listener.local_addr()?.port()
         );
 
