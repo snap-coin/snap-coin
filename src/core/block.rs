@@ -112,7 +112,7 @@ impl Block {
 
         // Encode normalized block
         let mut buf = bincode::encode_to_vec(hash_less_block, bincode::config::standard())?;
-        if chrono::Utc::now().timestamp() as u64 > SCIP_1_MIGRATION {
+        if self.timestamp > SCIP_1_MIGRATION {
             buf.extend_from_slice(&transactions_digest);
         }
 
