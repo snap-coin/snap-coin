@@ -267,7 +267,7 @@ impl BlockStore {
         None
     }
 
-    pub fn iter_blocks(&self) -> impl Iterator<Item = Result<Block, BlockStoreError>> + '_ {
+    pub fn iter_blocks(&self) -> impl DoubleEndedIterator<Item = Result<Block, BlockStoreError>> + '_ {
         let height = self.get_height();
         (0..height).map(move |h| {
             let path = self.block_path_by_height(h);

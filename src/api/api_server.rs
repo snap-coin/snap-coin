@@ -70,35 +70,46 @@ impl Server {
                         address,
                         page: requested_page,
                     } => {
-                        let mut transactions = vec![];
+                        let start = (requested_page * PAGE_SIZE) as usize;
+                        let end = start + PAGE_SIZE as usize;
 
-                        for block in blockchain.block_store().iter_blocks() {
+                        let mut transactions = Vec::with_capacity(PAGE_SIZE as usize);
+                        let mut seen = 0usize;
+                        let mut has_more = false;
+
+                        'outer: for block in blockchain.block_store().iter_blocks().rev() {
                             let block = block?;
+
                             for tx in block.transactions {
                                 if tx.contains_address(address) {
-                                    transactions.push(
-                                        tx.transaction_id.ok_or(TransactionError::MissingId)?,
-                                    );
+                                    if seen >= start && seen < end {
+                                        transactions.push(
+                                            tx.transaction_id.ok_or(TransactionError::MissingId)?,
+                                        );
+                                    }
+
+                                    seen += 1;
+
+                                    if seen >= end {
+                                        has_more = true;
+                                        break 'outer;
+                                    }
                                 }
                             }
                         }
 
-                        let page = slice_vec(
-                            &transactions,
-                            (requested_page * PAGE_SIZE) as usize,
-                            ((requested_page + 1) * PAGE_SIZE) as usize,
-                        );
-                        let next_page = if page.len() != PAGE_SIZE as usize {
-                            None
-                        } else {
+                        let next_page = if has_more {
                             Some(requested_page + 1)
+                        } else {
+                            None
                         };
 
                         Response::TransactionsOfAddress {
-                            transactions: page.to_vec(),
+                            transactions,
                             next_page,
                         }
                     }
+
                     Request::AvailableUTXOs {
                         address,
                         page: requested_page,

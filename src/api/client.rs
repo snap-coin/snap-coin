@@ -127,6 +127,7 @@ impl Client {
     pub async fn get_transactions_of_address(
         &self,
         address: Public,
+        max_pages: Option<u32>,
     ) -> Result<Vec<Hash>, BlockchainDataProviderError> {
         let mut transactions = vec![];
         let mut page = 0;
@@ -141,6 +142,11 @@ impl Client {
                 } => {
                     transactions.extend_from_slice(&transactions_page);
                     if let Some(next_page) = next_page {
+                        if let Some(max_pages) = max_pages
+                            && next_page >= max_pages
+                        {
+                            return Ok(transactions);
+                        }
                         page = next_page;
                     } else {
                         return Ok(transactions);
@@ -167,8 +173,10 @@ impl Client {
         mut on_event: impl FnMut(ChainEvent),
     ) -> Result<(), BlockchainDataProviderError> {
         let mut stream = self.stream.lock().await;
-        stream.write_all(&Request::SubscribeToChainEvents.encode()?)
-            .await.map_err(|_| RequestResponseError::Stream)?;
+        stream
+            .write_all(&Request::SubscribeToChainEvents.encode()?)
+            .await
+            .map_err(|_| RequestResponseError::Stream)?;
 
         loop {
             let message = Response::decode_from_stream(&mut stream).await?;
