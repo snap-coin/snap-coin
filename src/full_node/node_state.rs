@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, VecDeque},
-    net::SocketAddr,
+    collections::{HashMap, HashSet, VecDeque},
+    net::{IpAddr, SocketAddr},
+    ops::Add,
     sync::Arc,
 };
 use tokio::sync::{
@@ -16,7 +17,10 @@ use crate::{
         transaction::{Transaction, TransactionId},
     },
     crypto::Hash,
-    full_node::mempool::MemPool,
+    full_node::{
+        mempool::MemPool,
+        p2p_server::{BAN_SCORE_THRESHOLD, ClientHealthScores, PUNISHMENT},
+    },
     node::peer::PeerHandle,
 };
 
@@ -28,6 +32,7 @@ pub struct NodeState {
     pub is_syncing: RwLock<bool>,
     pub chain_events: broadcast::Sender<ChainEvent>,
     pub processing: Mutex<()>,
+    pub client_health_scores: ClientHealthScores,
     last_seen_block_reader: watch::Receiver<Hash>,
     last_seen_block_writer: watch::Sender<Hash>,
     last_seen_transactions_reader: watch::Receiver<VecDeque<TransactionId>>,
@@ -51,6 +56,7 @@ impl NodeState {
             last_seen_block_writer,
             last_seen_transactions_reader,
             last_seen_transactions_writer,
+            client_health_scores: ClientHealthScores::new(HashMap::new()),
         })
     }
 
@@ -95,6 +101,45 @@ impl NodeState {
             &transaction_difficulty,
             self.mempool.mempool_size().await,
         )
+    }
+
+    /// Punish a IP address
+    pub async fn punish_ip(&self, ip: IpAddr) {
+        *self
+            .client_health_scores
+            .write()
+            .await
+            .entry(ip)
+            .or_insert(0) += PUNISHMENT;
+    }
+
+    /// "Forgive" everyone by 1 pt
+    pub async fn decrement_punishments(&self) {
+        let mut scores = self.client_health_scores.write().await;
+
+        let mut to_remove = Vec::new();
+
+        for (ip, score) in scores.iter_mut() {
+            *score = score.saturating_sub(PUNISHMENT);
+            if *score == 0 {
+                to_remove.push(ip.clone());
+            }
+        }
+
+        for ip in to_remove {
+            scores.remove(&ip);
+        }
+    }
+
+    /// Get a list of banned ips
+    pub async fn get_banned_ips(&self) -> HashSet<IpAddr> {
+        self.client_health_scores
+            .read()
+            .await
+            .iter()
+            .filter(|(_ip, score)| score > &&BAN_SCORE_THRESHOLD)
+            .map(|(ip, _score)| *ip)
+            .collect()
     }
 }
 
