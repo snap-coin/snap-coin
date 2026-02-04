@@ -17,7 +17,7 @@ use crate::{
 
 pub struct Client {
     pub node: SocketAddr,
-    stream: Mutex<TcpStream>,
+    pub stream: Mutex<TcpStream>,
 }
 
 impl Client {
