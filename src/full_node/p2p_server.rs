@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub const BAN_SCORE_THRESHOLD: u8 = 10;
-pub const PUNISHMENT: u8 = 2;
+pub const PUNISHMENT: u8 = 4;
 pub type ClientHealthScores = RwLock<HashMap<IpAddr, u8>>;
 
 #[derive(Error, Debug)]
