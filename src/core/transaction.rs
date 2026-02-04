@@ -66,7 +66,7 @@ pub enum TransactionError {
 }
 
 /// A transaction input, that are funding a set transaction output, that must exist in the current utxo set
-#[derive(Encode, Decode, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Encode, Decode, Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub struct TransactionInput {
     pub transaction_id: TransactionId,
     pub output_index: usize,
@@ -75,7 +75,7 @@ pub struct TransactionInput {
 }
 
 /// A transaction output, specifying the transactions set receiver
-#[derive(Encode, Decode, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Encode, Decode, Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub struct TransactionOutput {
     pub amount: u64,
     pub receiver: Public,
@@ -85,7 +85,7 @@ pub struct TransactionOutput {
 /// The transaction id is a way of finding this transaction once it becomes part of this blockchain. It is also the transaction id that is the actual Hash of the transaction buffer obtained by get_tx_hashing_buf
 /// The timestamp is set by the sender, and only loosely validated
 /// The nonce is also set by the sender to allow the transaction to be mined (POW)
-#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize)]
+#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub struct Transaction {
     pub inputs: Vec<TransactionInput>,
     pub outputs: Vec<TransactionOutput>,

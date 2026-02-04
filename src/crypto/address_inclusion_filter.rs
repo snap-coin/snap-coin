@@ -15,7 +15,7 @@ pub enum AddressInclusionFilterError {
 
 const FALSE_POSITIVE_RATE: f64 = 0.001;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Hash)]
 pub struct AddressInclusionFilter {
     bits: Vec<u8>,
     num_bits: usize,

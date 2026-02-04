@@ -48,7 +48,7 @@ pub enum BlockError {
 
 /// Stores transaction, difficulties, its hash, and its nonce
 /// The hash can be often used for indexing, however can only be trusted if this node checked this block already
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug, PartialEq, Hash)]
 pub struct Block {
     pub transactions: Vec<Transaction>,
     pub timestamp: u64,
@@ -229,7 +229,7 @@ impl Block {
 }
 
 // Represents all block data that is not essential to it's existence (however required)
-#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug)]
+#[derive(Encode, Decode, Serialize, Deserialize, Clone, Debug, PartialEq, Hash)]
 pub struct BlockMetadata {
     pub block_pow_difficulty: [u8; 32],
     pub tx_pow_difficulty: [u8; 32],
