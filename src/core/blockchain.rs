@@ -17,6 +17,7 @@ use crate::{
         transaction::{Transaction, TransactionError, TransactionId},
         utxo::{UTXODiff, UTXOs},
     },
+    crypto::Hash,
     economics::{DEV_WALLET, EXPIRATION_TIME, calculate_dev_fee, get_block_reward},
 };
 
@@ -91,13 +92,13 @@ impl From<TransactionError> for BlockchainError {
 
 /// BlockchainData is an object used for storing and loading current blockchain state.
 #[derive(Encode, Decode, Debug, Clone)]
-struct BlockchainData {
-    difficulty_state: DifficultyState,
-    block_store: BlockStore,
+pub struct BlockchainData {
+    pub difficulty_state: DifficultyState,
+    pub height: usize,
+    pub last_block: Hash,
 }
 
 /// The blockchain, handles everything. Core to this crypto coin.
-#[derive(Debug)]
 pub struct Blockchain {
     blockchain_path: String,
     block_store: BlockStore,
@@ -121,7 +122,11 @@ impl Blockchain {
         match Self::load_blockchain_data(&blockchain_path) {
             Ok(blockchain_data) => {
                 return Blockchain {
-                    block_store: blockchain_data.block_store,
+                    block_store: BlockStore::load(
+                        &format!("{}blocks/", blockchain_path),
+                        blockchain_data.height,
+                        blockchain_data.last_block,
+                    ),
                     utxos: UTXOs::new(blockchain_path.clone()),
                     difficulty_state: blockchain_data.difficulty_state,
                     blockchain_path,
@@ -139,8 +144,8 @@ impl Blockchain {
     }
 
     /// Load the blockchain data
-    fn load_blockchain_data(blockchain_path: &str) -> Result<BlockchainData, BlockchainError> {
-        let mut file = File::open(format!("{}blockchain.dat", blockchain_path))
+    pub fn load_blockchain_data(blockchain_path: &str) -> Result<BlockchainData, BlockchainError> {
+        let mut file = File::open(format!("{}blockchain-info.dat", blockchain_path))
             .map_err(|e| BlockchainError::Io(e.to_string()))?;
         Ok(
             bincode::decode_from_std_read(&mut file, bincode::config::standard())
@@ -149,12 +154,18 @@ impl Blockchain {
     }
 
     /// Save the blockchain data
-    fn save_blockchain_data(&self) -> Result<(), BlockchainError> {
-        let mut file = File::create(format!("{}blockchain.dat", self.blockchain_path))
+    pub fn save_blockchain_data(
+        blockchain_path: &str,
+        difficulty_state: DifficultyState,
+        height: usize,
+        last_block: Hash,
+    ) -> Result<(), BlockchainError> {
+        let mut file = File::create(format!("{}blockchain-info.dat", blockchain_path))
             .map_err(|e| BlockchainError::Io(e.to_string()))?;
         let blockchain_data = BlockchainData {
-            difficulty_state: self.difficulty_state.clone(),
-            block_store: self.block_store().clone(),
+            difficulty_state,
+            height,
+            last_block,
         };
         file.sync_all()
             .map_err(|e| BlockchainError::Io(e.to_string()))?;
@@ -258,7 +269,12 @@ impl Blockchain {
         self.difficulty_state.update_difficulty(&new_block);
 
         self.block_store().add_block(new_block, utxo_diffs)?;
-        self.save_blockchain_data()?;
+        Self::save_blockchain_data(
+            &self.blockchain_path,
+            self.difficulty_state.clone(),
+            self.block_store().get_height(),
+            self.block_store().get_last_block_hash(),
+        )?;
 
         Ok(())
     }
@@ -300,7 +316,12 @@ impl Blockchain {
         }
 
         // Save blockchain data
-        self.save_blockchain_data()?;
+        Self::save_blockchain_data(
+            &self.blockchain_path,
+            self.difficulty_state.clone(),
+            self.block_store().get_height(),
+            self.block_store().get_last_block_hash(),
+        )?;
 
         Ok(())
     }

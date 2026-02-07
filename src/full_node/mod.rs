@@ -4,6 +4,9 @@ pub mod p2p_server;
 /// Handles public node discovery, and connection. A daemon
 pub mod auto_peer;
 
+/// Reconnects to initial nodes if all disconnect
+pub mod auto_reconnect;
+
 /// Stores all currently pending transactions, that are waiting to be mined
 pub mod mempool;
 

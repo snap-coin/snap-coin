@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fs::{self, File},
     io::Write,
     sync::RwLock,
@@ -47,25 +46,35 @@ pub struct TransactionAndInfo {
     pub in_block: Hash,
 }
 
-#[derive(Debug, Encode, Decode, Clone)]
 pub struct BlockIndex {
-    by_hash: HashMap<Hash, usize>,
-    by_height: HashMap<usize, Hash>,
+    pub db: sled::Db,
+    pub by_hash: sled::Tree,
+    pub by_height: sled::Tree,
 }
 
 impl BlockIndex {
-    pub fn new_empty() -> Self {
+    pub fn load(path: &str) -> Self {
+        if !fs::exists(path).expect("Could not open block index DB") {
+            fs::create_dir_all(path).expect("Could not open block index DB");
+        }
+        let db = sled::open(path).expect("Could not open block index DB");
+        let by_hash = db
+            .open_tree("by_hash")
+            .expect("Could not open block index by hash tree");
+        let by_height = db
+            .open_tree("by_height")
+            .expect("Could not open block index by height tree");
         Self {
-            by_hash: HashMap::new(),
-            by_height: HashMap::new(),
+            db,
+            by_hash,
+            by_height,
         }
     }
 }
 
-#[derive(Debug, Encode, Decode)]
 pub struct BlockStore {
     pub store_path: String,
-    block_index: RwLock<BlockIndex>, // RwLock's are justified, because they only get written to on block add or pop
+    block_index: BlockIndex,
     height: RwLock<usize>,
     last_block: RwLock<Hash>,
 }
@@ -74,9 +83,18 @@ impl BlockStore {
     pub fn new_empty(path: &str) -> Self {
         Self {
             store_path: path.to_owned(),
-            block_index: RwLock::new(BlockIndex::new_empty()),
+            block_index: BlockIndex::load(&format!("{}block-index", path)),
             height: RwLock::new(0usize),
             last_block: RwLock::new(GENESIS_PREVIOUS_BLOCK_HASH),
+        }
+    }
+
+    pub fn load(path: &str, height: usize, last_block: Hash) -> Self {
+        Self {
+            store_path: path.to_owned(),
+            block_index: BlockIndex::load(&format!("{}block-index", path)),
+            height: RwLock::new(height),
+            last_block: RwLock::new(last_block),
         }
     }
 
@@ -116,15 +134,24 @@ impl BlockStore {
         )?;
 
         // Update block index
-        {
-            let mut block_index = self.block_index.write().unwrap();
-            block_index
-                .by_hash
-                .insert(block.meta.hash.unwrap(), self.get_height()); // Unwraps are okay, we checked, block is complete
-            block_index
-                .by_height
-                .insert(self.get_height(), block.meta.hash.unwrap());
-        }
+        // Unwraps are okay, we checked, block is complete
+        self.block_index
+            .by_hash
+            .insert(
+                block.meta.hash.unwrap().dump_buf(),
+                &self.get_height().to_be_bytes(),
+            )
+            .unwrap();
+        self.block_index
+            .by_height
+            .insert(
+                &self.get_height().to_be_bytes(),
+                &block.meta.hash.unwrap().dump_buf(),
+            )
+            .unwrap();
+
+        // Flush database
+        self.block_index.db.flush().unwrap();
 
         // Update block height and last block
         *self.height.write().unwrap() = self.get_height() + 1;
@@ -150,11 +177,18 @@ impl BlockStore {
         fs::rename(&diffs_path, &diffs_del)?;
 
         // Remove block from index
-        {
-            let mut block_index = self.block_index.write().unwrap();
-            block_index.by_hash.remove(&self.get_last_block_hash());
-            block_index.by_height.remove(&height);
-        }
+
+        self.block_index
+            .by_hash
+            .remove(&self.get_last_block_hash().dump_buf())
+            .unwrap();
+        self.block_index
+            .by_height
+            .remove(&height.to_be_bytes())
+            .unwrap();
+
+        // Flush database
+        self.block_index.db.flush().unwrap();
 
         // Update height first
         *self.height.write().unwrap() = height;
@@ -201,22 +235,35 @@ impl BlockStore {
 
     /// Gets block referenced by it's hash
     pub fn get_block_by_hash(&self, hash: Hash) -> Option<Block> {
-        self.get_block_by_height(*self.block_index.read().unwrap().by_hash.get(&hash)?)
+        self.get_block_by_height(self.get_block_height_by_hash(hash)?)
     }
 
     /// Gets block hash referenced by it's height
     pub fn get_block_hash_by_height(&self, height: usize) -> Option<Hash> {
-        self.block_index
-            .read()
-            .unwrap()
+        if let Some(buf) = self
+            .block_index
             .by_height
-            .get(&height)
-            .copied()
+            .get(height.to_be_bytes())
+            .expect("Could not read block index DB")
+        {
+            Some(Hash::new_from_buf(buf.as_ref().try_into().unwrap()))
+        } else {
+            None
+        }
     }
 
     /// Gets block height referenced by it's hash
     pub fn get_block_height_by_hash(&self, hash: Hash) -> Option<usize> {
-        self.block_index.read().unwrap().by_hash.get(&hash).copied()
+        if let Some(buf) = self
+            .block_index
+            .by_hash
+            .get(hash.dump_buf())
+            .expect("Could not read block index DB")
+        {
+            Some(usize::from_be_bytes(buf.as_ref().try_into().unwrap()))
+        } else {
+            None
+        }
     }
 
     pub fn get_last_utxo_diffs(&self) -> Option<UTXODiff> {
@@ -303,17 +350,5 @@ impl BlockStore {
             let path = self.block_path_by_height(h);
             Self::load_block_from_path(&path)
         })
-    }
-}
-
-impl Clone for BlockStore {
-    /// WARNING: SLOW
-    fn clone(&self) -> Self {
-        Self {
-            store_path: self.store_path.clone(),
-            block_index: RwLock::new(self.block_index.read().unwrap().clone()),
-            height: RwLock::new(*self.height.read().unwrap()),
-            last_block: RwLock::new(*self.last_block.read().unwrap()),
-        }
     }
 }

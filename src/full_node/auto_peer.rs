@@ -6,7 +6,10 @@ use std::{
 use get_if_addrs::get_if_addrs;
 use log::{error, info};
 use rand::seq::IteratorRandom;
-use tokio::{task::JoinHandle, time::sleep};
+use tokio::{
+    task::JoinHandle,
+    time::{sleep, timeout},
+};
 
 use crate::{
     full_node::{SharedBlockchain, connect_peer, node_state::SharedNodeState},
@@ -18,6 +21,7 @@ use crate::{
 
 /// Amount of peers, that the node is trying to achieve stable connections with
 pub const TARGET_PEERS: usize = 12;
+pub const PEER_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Daemon reload cycle time
 pub const DAEMON_CYCLE: Duration = Duration::from_secs(30);
@@ -51,8 +55,6 @@ pub fn start_auto_peer(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            sleep(DAEMON_CYCLE).await;
-
             let peer_count =
                 node_state
                     .connected_peers
@@ -65,6 +67,7 @@ pub fn start_auto_peer(
                     );
 
             if peer_count >= TARGET_PEERS {
+                sleep(DAEMON_CYCLE).await;
                 continue;
             }
 
@@ -80,39 +83,19 @@ pub fn start_auto_peer(
 
                 if let Err(e) = async {
                     // define the closure here so it lives inside this async block
-                    let is_my_ip = |ip: &IpAddr| {
-                        ip.is_loopback()
-                            || ip.is_unspecified()
-                            || reserved_ips.contains(ip)
-                            || get_if_addrs()
-                                .expect("Could not get Local machine IP addresses.")
-                                .iter()
-                                .any(|interface| interface.ip() == *ip)
-                    };
 
                     let referrals = get_peer_referrals(&peer).await?;
 
-                    for referral in referrals {
-                        if is_my_ip(&referral.ip()) {
-                            continue;
-                        }
-                        if node_state
-                            .connected_peers
-                            .read()
-                            .await
-                            .contains_key(&referral)
-                        {
-                            continue;
-                        }
-                        // try to connect to peer, if cant, no biggie
-                        if let Ok(connected_peer) =
-                            connect_peer(referral, &blockchain, &node_state).await
-                        {
-                            info!(
-                                "Connected to new peer: {}, referred by: {}",
-                                connected_peer.address, peer.address
-                            );
-                        }
+                    for referral in referrals.iter().take(TARGET_PEERS) {
+                        let reserved_ips = reserved_ips.clone();
+                        let node_state = node_state.clone();
+                        let blockchain = blockchain.clone();
+                        let peer = peer.clone();
+                        let _ = timeout(PEER_CONNECT_TIMEOUT, async move {
+                            try_connect(&node_state, &blockchain, &peer, referral, reserved_ips)
+                                .await;
+                        })
+                        .await;
                     }
 
                     Ok::<(), PeerError>(())
@@ -122,6 +105,44 @@ pub fn start_auto_peer(
                     error!("Auto peer failed {peer_address}, error: {e}");
                 }
             }
+            sleep(DAEMON_CYCLE).await;
         }
     })
+}
+
+pub async fn try_connect(
+    node_state: &SharedNodeState,
+    blockchain: &SharedBlockchain,
+    referrer: &PeerHandle,
+    referral: &SocketAddr,
+    reserved_ips: Vec<IpAddr>,
+) {
+    let is_my_ip = |ip: &IpAddr| {
+        ip.is_loopback()
+            || ip.is_unspecified()
+            || reserved_ips.contains(ip)
+            || get_if_addrs()
+                .expect("Could not get Local machine IP addresses.")
+                .iter()
+                .any(|interface| interface.ip() == *ip)
+    };
+
+    if is_my_ip(&referral.ip()) {
+        return;
+    }
+    if node_state
+        .connected_peers
+        .read()
+        .await
+        .contains_key(referral)
+    {
+        return;
+    }
+    // try to connect to peer, if cant, no biggie
+    if let Ok(connected_peer) = connect_peer(*referral, &blockchain, &node_state).await {
+        info!(
+            "Connected to new peer: {}, referred by: {}",
+            connected_peer.address, referrer.address
+        );
+    }
 }

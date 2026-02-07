@@ -79,6 +79,7 @@ impl PeerBehavior for FullNodePeerBehavior {
                     .read()
                     .await
                     .values()
+                    .filter(|peer| !peer.is_client)
                     .map(|peer| peer.address.to_string())
                     .collect();
                 message.make_response(Command::SendPeers { peers })
@@ -104,10 +105,12 @@ impl PeerBehavior for FullNodePeerBehavior {
                 ));
             }
             Command::NewTransaction { ref transaction } => {
-                match accept_transaction(&blockchain, &node_state, transaction.clone()).await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!("Incoming transaction is invalid: {e}")
+                if !*node_state.is_syncing.read().await {
+                    match accept_transaction(&blockchain, &node_state, transaction.clone()).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!("Incoming transaction is invalid: {e}")
+                        }
                     }
                 }
                 message.make_response(Command::NewTransactionResolved)
