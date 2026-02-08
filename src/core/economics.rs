@@ -9,14 +9,26 @@ pub const NANO_TO_SNAP: f64 = 100_000_000f64;
 /// Initial amount rewarded to miner (also split with devs by dev fee)
 pub const INITIAL_REWARD: u64 = to_nano(100.0);
 
+/// Max amount the difficulty can change per block
+pub const MAX_TX_DIFF_CHANGE: f64 = 0.8;
+
 /// Target time in seconds for each block
-pub const TARGET_TIME: u64 = 20;
+pub const TARGET_TIME: u64 = 35;
 
 /// Target amount of transactions per block
 pub const TX_TARGET: usize = 100;
 
-/// Max amount the difficulty can change per block (TX and block diff)
-pub const MAX_DIFF_CHANGE: f64 = 0.8;
+/// How slowly difficulty moves (bigger = slower changes)
+pub const DIFFICULTY_ADJUST_DIVISOR: f64 = 64.0;
+
+/// Max percent change per block (±)
+pub const MAX_BLOCK_DIFFICULTY_ADJUST: f64 = 0.05;
+
+/// Minimum block difficulty (floor)
+pub const MIN_BLOCK_DIFFICULTY: [u8; 32] = [0u8; 32];
+
+/// Precision scaler for ratio math
+pub const DIFF_ADJUST_SCALE: u64 = 1_000_000;
 
 /// Halving of reward happens every how many blocks
 pub const HALVING_INTERVAL: usize = 1_000_000; // number of blocks per halving
@@ -78,3 +90,4 @@ pub const fn calculate_dev_fee(block_reward: u64) -> u64 {
 
 // Snap Coin Improvement Protocol migration dates
 pub const SCIP_1_MIGRATION: u64 = 1770375600; // February 6, 2026 12:00:00 AM CET
+pub const SCIP_2_MIGRATION: u64 = 1770894000; // Thursday Feb 12 2026 12:00:00 CET

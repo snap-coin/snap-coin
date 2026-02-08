@@ -3,10 +3,14 @@ use std::sync::RwLock;
 use crate::{
     core::{
         block::Block,
-        economics::{DIFFICULTY_DECAY_PER_TRANSACTION, MAX_DIFF_CHANGE, TARGET_TIME, TX_TARGET},
+        economics::{DIFFICULTY_DECAY_PER_TRANSACTION, TARGET_TIME, TX_TARGET},
         utils::{clamp_f, max_256_bui},
     },
-    economics::MEMPOOL_PRESSURE_PER_TRANSACTION,
+    economics::{
+        DIFF_ADJUST_SCALE, DIFFICULTY_ADJUST_DIVISOR, MAX_BLOCK_DIFFICULTY_ADJUST,
+        MAX_TX_DIFF_CHANGE, MEMPOOL_PRESSURE_PER_TRANSACTION, MIN_BLOCK_DIFFICULTY,
+        SCIP_2_MIGRATION,
+    },
 };
 use bincode::{Decode, Encode};
 use num_bigint::BigUint;
@@ -34,26 +38,61 @@ impl DifficultyState {
 
     /// Update the network difficulties after adding a new block to the blockchain
     pub fn update_difficulty(&self, new_block: &Block) {
-        // Block difficulty
-        let time_ratio = (clamp_f(
-            (new_block
-                .timestamp
-                .saturating_sub(*self.last_timestamp.read().unwrap())) as f64
-                / TARGET_TIME as f64,
-            MAX_DIFF_CHANGE,
-            2.0 - MAX_DIFF_CHANGE,
-        ) * 1000.0) as u64;
+        if new_block.timestamp > SCIP_2_MIGRATION {
+            // Block difficulty post SCIP-2
+            let last_ts = *self.last_timestamp.read().unwrap();
+            let now_ts = new_block.timestamp;
 
-        let mut block_big = BigUint::from_bytes_be(&*self.block_difficulty.read().unwrap());
-        block_big = block_big * BigUint::from(time_ratio) / BigUint::from(1000u64);
-        *self.block_difficulty.write().unwrap() =
-            biguint_to_32_bytes(block_big.min(max_256_bui()).max(BigUint::ZERO));
+            let actual_time = now_ts.saturating_sub(last_ts).max(1) as f64;
+            let target_time = TARGET_TIME as f64;
 
-        // Transaction difficulty
+            // Positive if blocks are fast, negative if slow
+            let error = (target_time - actual_time) / target_time;
+
+            // Small step
+            let mut adj = error / DIFFICULTY_ADJUST_DIVISOR as f64;
+
+            // Bound it
+            adj = adj.clamp(-MAX_BLOCK_DIFFICULTY_ADJUST, MAX_BLOCK_DIFFICULTY_ADJUST);
+
+            // Invert for target math
+            let ratio = 1.0 - adj;
+
+            // Scale to avoid float BigUint
+            let scaled = (ratio * DIFF_ADJUST_SCALE as f64) as u64;
+
+            let mut target = BigUint::from_bytes_be(&*self.block_difficulty.read().unwrap());
+
+            target = target * BigUint::from(scaled) / BigUint::from(DIFF_ADJUST_SCALE);
+
+            let min = BigUint::from_bytes_be(&MIN_BLOCK_DIFFICULTY);
+            let max = max_256_bui();
+
+            target = target.max(min).min(max);
+
+            *self.block_difficulty.write().unwrap() = biguint_to_32_bytes(target.clone());
+        } else {
+            // Block difficulty pre SCIP-2
+            let time_ratio = (clamp_f(
+                (new_block
+                    .timestamp
+                    .saturating_sub(*self.last_timestamp.read().unwrap())) as f64
+                    / 20 as f64,
+                0.8f64,
+                2.0 - 0.8f64,
+            ) * 1000.0) as u64;
+
+            let mut block_big = BigUint::from_bytes_be(&*self.block_difficulty.read().unwrap());
+            block_big = block_big * BigUint::from(time_ratio) / BigUint::from(1000u64);
+            *self.block_difficulty.write().unwrap() =
+                biguint_to_32_bytes(block_big.min(max_256_bui()).max(BigUint::ZERO));
+        }
+
+        // Transaction Difficulty
         let tx_ratio = (clamp_f(
-            TX_TARGET as f64 / new_block.transactions.len() as f64,
-            MAX_DIFF_CHANGE,
-            2.0 - MAX_DIFF_CHANGE,
+            TX_TARGET as f64 / new_block.transactions.len().max(1) as f64,
+            MAX_TX_DIFF_CHANGE,
+            2.0 - MAX_TX_DIFF_CHANGE,
         ) * 1000.0) as u64;
 
         let mut tx_big = BigUint::from_bytes_be(&*self.transaction_difficulty.read().unwrap());
@@ -61,7 +100,8 @@ impl DifficultyState {
         *self.transaction_difficulty.write().unwrap() =
             biguint_to_32_bytes(tx_big.min(max_256_bui()).max(BigUint::ZERO));
 
-        // Update last timestamp
+        // ---------------- TIMESTAMP ----------------
+
         *self.last_timestamp.write().unwrap() = new_block.timestamp;
     }
 
