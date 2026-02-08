@@ -1,6 +1,0 @@
-INFO [snap_coin::full_node] Logger initialized for node at "node-mainnet2"
-INFO [snap_coin::api::api_server] API Server listening on 0.0.0.0:2002
-INFO [snap_coin::full_node] New block accepted: 3t7ylh0qxg6mvi1yzdoabi53qzut7d8qc9z1rwqlmsrc7i0rnd
-INFO [snap_coin::full_node::ibd] Starting initial block download
-INFO [snap_coin::full_node::ibd] [SYNC] Already synced
-INFO [snap_coin_node] Blockchain sync status Ok(())
