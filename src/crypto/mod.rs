@@ -35,26 +35,82 @@ unsafe impl Send for SharedDataset {}
 
 static DATASET: OnceLock<SharedDataset> = OnceLock::new();
 static IS_LIGHT_MODE: AtomicBool = AtomicBool::new(true);
+static HUGE_PAGES: AtomicBool = AtomicBool::new(false);
 
 /// This can only be called at the beginning of a program to be effective (before all Hash::new() or Hash::compare_with_data() calls to work)
 /// Enables full memory mode, substantially increasing hash rate, by allocating a 2GB scratch pad for hashing
-pub fn randomx_use_full_mode() {
+pub fn randomx_optimized_mode(huge_pages: bool) {
     IS_LIGHT_MODE.store(false, Ordering::SeqCst);
+    HUGE_PAGES.store(huge_pages, Ordering::SeqCst);
+}
+
+fn has_huge_pages_support() -> bool {
+    // Linux check
+    #[cfg(target_os = "linux")]
+    {
+        // Check if transparent huge pages are enabled
+
+        use std::fs;
+
+        // Check if huge pages are configured
+        if let Ok(pages) = fs::read_to_string("/proc/sys/vm/nr_hugepages") {
+            if let Ok(count) = pages.trim().parse::<u32>() {
+                if count >= 2000 {
+                    // absolute minimum is 2GB
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Windows check
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, large pages require the SeLockMemoryPrivilege
+        // You could check this, but it's complex. For now, assume available.
+        return true;
+    }
+
+    // macOS doesn't support huge pages in the same way
+    #[cfg(target_os = "macos")]
+    {
+        return false;
+    }
+
+    false
 }
 
 /// Returns a reference to the shared dataset
 fn get_dataset() -> RandomXDataset {
     let dataset = DATASET.get_or_init(|| {
-        println!("Creating RandomX dataset...");
-        let flags = RandomXFlag::FLAG_FULL_MEM | RandomXFlag::FLAG_JIT;
+        let mut flags = RandomXFlag::get_recommended_flags()
+            | RandomXFlag::FLAG_FULL_MEM
+            | RandomXFlag::FLAG_JIT;
+        if HUGE_PAGES.load(Ordering::SeqCst) {
+            if has_huge_pages_support() {
+                flags |= RandomXFlag::FLAG_LARGE_PAGES;
+                println!("[RANDOMX] Full page support detected");
+            } else {
+                println!("[RANDOMX] Full page support was not detected or configured correctly with 2000 pages!");
+            }
+        }
+        println!("[RANDOMX] Starting optimized RandomX: {:?}", flags);
 
-        let cache = RandomXCache::new(flags, RANDOMX_SEED).expect("Failed to create RandomX cache");
+        println!("[RANDOMX] Creating dataset...");
+        let cache = RandomXCache::new(flags, RANDOMX_SEED).expect(&format!(
+            "Failed to create RandomX cache{}",
+            if HUGE_PAGES.load(Ordering::SeqCst) {
+                " (does your system support huge pages?)"
+            } else {
+                ""
+            }
+        ));
 
         let dataset =
             RandomXDataset::new(flags, cache, 0).expect("Failed to create RandomX dataset");
 
         let shared_dataset = SharedDataset(dataset);
-        println!("RandomX dataset created!");
+        println!("[RANDOMX] Dataset created!");
         shared_dataset
     });
     dataset.clone().0
@@ -69,9 +125,16 @@ thread_local! {
             RandomXVM::new(flags, Some(cache), None)
                 .expect("Failed to create RandomX VM (light mode)")
         } else {
-            let flags = RandomXFlag::FLAG_FULL_MEM | RandomXFlag::FLAG_JIT;
+            let mut flags = RandomXFlag::get_recommended_flags()
+                | RandomXFlag::FLAG_FULL_MEM
+                | RandomXFlag::FLAG_JIT;
+            if HUGE_PAGES.load(Ordering::SeqCst) {
+                if has_huge_pages_support() {
+                    flags |= RandomXFlag::FLAG_LARGE_PAGES;
+                }
+            }
             let dataset = get_dataset();
-            RandomXVM::new(flags, None, Some(dataset.clone()))
+            RandomXVM::new(flags, None, Some(dataset))
                 .expect("Failed to create RandomX VM (full mode)")
         }
     });
@@ -80,8 +143,10 @@ thread_local! {
 pub fn randomx_hash(input: &[u8]) -> [u8; 32] {
     THREAD_VM.with(|vm_cell| {
         let vm = vm_cell.borrow_mut();
-        let hash_vec = vm.calculate_hash(input).expect("RandomX hashing failed");
-        hash_vec.try_into().expect("Hash must be 32 bytes")
+        unsafe {
+            let hash_vec = vm.calculate_hash(input).unwrap_unchecked();
+            *(hash_vec.as_ptr() as *const [u8; 32])
+        }
     })
 }
 
