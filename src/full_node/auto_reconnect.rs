@@ -27,10 +27,12 @@ pub fn start_auto_reconnect(
                 match res {
                     Ok(_) => {
                         info!("Reconnection status: OK");
+                        *node_state.is_syncing.write().await = true;
                         info!(
                             "Re-sync status: {:?}",
                             ibd_blockchain(node_state.clone(), blockchain.clone(), full_ibd).await
                         );
+                        *node_state.is_syncing.write().await = false;
                     }
                     Err(e) => {
                         error!("Reconnection status: {}", e);

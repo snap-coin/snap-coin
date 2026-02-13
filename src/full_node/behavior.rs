@@ -55,7 +55,7 @@ impl PeerBehavior for FullNodePeerBehavior {
                         node_state.mempool.clear().await; // We completely clear the mempool since syncing may invalidate, or double spend transactions
                         let res = {
                             let _lock = node_state.processing.lock().await; // Get a lock to make sure that we are not overwriting any blocks by accident
-                            sync_to_peer(&peer, &blockchain, height).await
+                            sync_to_peer(&peer, &blockchain, &node_state, height).await
                         };
                         *node_state.is_syncing.write().await = false;
                         match res {
