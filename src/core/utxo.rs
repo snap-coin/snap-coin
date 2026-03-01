@@ -60,7 +60,7 @@ impl UTXOs {
         self.db
             .insert(key, buffer)
             .map_err(|e| TransactionError::Other(e.to_string()))?;
-        
+
         Ok(())
     }
 
@@ -69,7 +69,7 @@ impl UTXOs {
         self.db
             .remove(txid.dump_base36())
             .map_err(|e| TransactionError::Other(e.to_string()))?;
-        
+
         Ok(())
     }
 
@@ -146,14 +146,18 @@ impl UTXOs {
             }
             used_utxos.insert(utxo_key);
 
-            input_sum += output.unwrap().amount;
+            input_sum = input_sum
+                .checked_add(output.unwrap().amount)
+                .ok_or(TransactionError::OverflowError)?;
         }
 
         for output in &transaction.outputs {
             if output.amount == 0 {
                 return Err(TransactionError::ZeroOutput(tx_id.dump_base36()));
             }
-            output_sum += output.amount;
+            output_sum = output_sum
+                .checked_add(output.amount)
+                .ok_or(TransactionError::OverflowError)?;
         }
 
         if input_sum != output_sum {
@@ -196,7 +200,7 @@ impl UTXOs {
         for (index, output) in transaction.outputs.iter().enumerate() {
             created_utxos.push((tx_id, index, *output));
         }
-        
+
         self.db
             .flush()
             .map_err(|e| TransactionError::Other(e.to_string()))?;

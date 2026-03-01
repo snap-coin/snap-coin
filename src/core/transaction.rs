@@ -60,6 +60,9 @@ pub enum TransactionError {
 
     #[error("Transaction has too many inputs or outputs")]
     TooMuchIO,
+    
+    #[error("Overflow error")]
+    OverflowError,
 
     #[error("{0}")]
     Other(String),

@@ -120,7 +120,7 @@ fn get_dataset() -> RandomXDataset {
 thread_local! {
     static THREAD_VM: RefCell<RandomXVM> = RefCell::new({
         if IS_LIGHT_MODE.load(Ordering::SeqCst) {
-            let flags = RandomXFlag::FLAG_JIT;
+            let flags = RandomXFlag::get_recommended_flags();
             let cache = RandomXCache::new(flags, RANDOMX_SEED).expect("Failed to create RandomX cache (light mode)");
             RandomXVM::new(flags, Some(cache), None)
                 .expect("Failed to create RandomX VM (light mode)")
