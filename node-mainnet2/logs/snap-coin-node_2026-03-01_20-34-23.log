@@ -1,0 +1,6 @@
+INFO [snap_coin::full_node] Logger initialized for node at "node-mainnet2/logs/snap-coin-node_2026-03-01_20-34-23.log"
+INFO [snap_coin::api::api_server] API Server listening on 0.0.0.0:45311
+INFO [snap_coin::full_node::ibd] [IBD] Starting initial block download
+ERROR [snap_coin::node::peer] Peer error (disconnected): Message decoding error: Failed to write or read to / from stream
+INFO [snap_coin_node] Blockchain sync status Err(Failed to receive response from peer: channel closed)
+ERROR [snap_coin::full_node::auto_peer] Auto peer failed 127.0.0.1:7887, error: Failed to receive response from peer: channel closed

@@ -143,7 +143,7 @@ impl Message {
         // Serialize the header first
         let mut header_bytes: Vec<u8> = Vec::new();
         header_bytes.extend_from_slice(&self.version.to_be_bytes());
-        header_bytes.extend_from_slice(CURRENT_NETWORK_ID.to_be_bytes());
+        header_bytes.extend_from_slice(&CURRENT_NETWORK_ID.to_be_bytes());
         header_bytes.extend_from_slice(&self.id.to_be_bytes());
         header_bytes.extend_from_slice(&size.to_be_bytes());
 

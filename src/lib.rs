@@ -24,7 +24,7 @@ pub mod node;
 pub mod full_node;
 
 /// Light node logic
-pub mod light_node;
+// pub mod light_node;
 
 /// A struct for interacting with a node instance through the Snap Coin API
 pub mod api;

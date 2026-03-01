@@ -1,6 +1,6 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use log::{error};
+use log::error;
 use tokio::{
     net::{
         TcpStream,
@@ -17,9 +17,11 @@ use tokio::{
 use thiserror::Error;
 
 use crate::{
-    core::blockchain::BlockchainError, light_node::block_meta_store::BlockMetaStoreError, node::{
-        message::{Command, Message, MessageId},peer_behavior::SharedPeerBehavior
-    }
+    core::blockchain::BlockchainError,
+    node::{
+        message::{Command, Message, MessageId},
+        peer_behavior::SharedPeerBehavior,
+    },
 };
 
 /// Message expecting a response OR not
@@ -68,9 +70,6 @@ pub enum PeerError {
 
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] BlockchainError),
-
-    #[error("Meta Store error: {0}")]
-    BlockMetaStore(#[from] BlockMetaStoreError),
 
     #[error("Sync error: {0}")]
     SyncError(String),
@@ -179,7 +178,7 @@ pub fn create_peer(
                 behavior_on_kill.on_kill(&my_handle_on_kill).await;
                 error!("Peer error (disconnected): {e}");
             });
-            
+
         }
     });
 
@@ -190,7 +189,7 @@ async fn reader_task(
     mut stream: OwnedReadHalf,
     pending: Pending,
     my_handle: PeerHandle,
-    behavior: SharedPeerBehavior
+    behavior: SharedPeerBehavior,
 ) -> Result<(), PeerError> {
     loop {
         let message = Message::from_stream(&mut stream)
@@ -229,17 +228,13 @@ async fn writer_task(
     Err(PeerError::Disconnected)
 }
 
-async fn pinger_task(
-    my_handle: PeerHandle,
-    behavior: SharedPeerBehavior
-) -> Result<(), PeerError> {
+async fn pinger_task(my_handle: PeerHandle, behavior: SharedPeerBehavior) -> Result<(), PeerError> {
     loop {
         sleep(PEER_PING_INTERVAL).await;
-        my_handle.request(
-            Message::new(Command::Ping {
+        my_handle
+            .request(Message::new(Command::Ping {
                 height: behavior.get_height().await,
-            }),
-        )
-        .await?;
+            }))
+            .await?;
     }
 }
