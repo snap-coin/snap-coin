@@ -9,7 +9,7 @@ use crate::{
         p2p_server::BAN_SCORE_THRESHOLD, sync::sync_to_peer,
     },
     node::{
-        message::{Command, Message},
+        message::{Command, METADATA_FETCH_MAX_COUNT, Message},
         peer::{PeerError, PeerHandle},
         peer_behavior::{PeerBehavior, SharedPeerBehavior},
     },
@@ -82,7 +82,7 @@ impl PeerBehavior for FullNodePeerBehavior {
                     .filter(|peer| !peer.is_client)
                     .map(|peer| peer.address.to_string())
                     .collect();
-                
+
                 // If this is a "public" node and the user provided it's external ip, we will advertise it to our peers
                 if let Some(advertised) = node_state.advertised_ip {
                     peers.push(advertised.to_string());
@@ -181,6 +181,37 @@ impl PeerBehavior for FullNodePeerBehavior {
             Command::GetBlockMetadataResponse { .. } => {
                 return Err(PeerError::Unknown(
                     "Got unhandled GetBlockMetadataResponse".to_string(),
+                ));
+            }
+            Command::GetBlockMetadatas {
+                range_start,
+                range_end,
+            } => {
+                if range_start < range_end
+                    && range_end <= self.blockchain.block_store().get_height()
+                    && range_end.saturating_sub(range_end) <= METADATA_FETCH_MAX_COUNT
+                {
+                    let mut metadatas = vec![];
+                    for height in range_start..range_end {
+                        if let Some(block) =
+                            self.blockchain.block_store().get_block_by_height(height)
+                        {
+                            metadatas.push(block.meta);
+                        }
+                    }
+
+                    message.make_response(Command::GetBlockMetadatasResponse {
+                        block_metadatas: metadatas,
+                    })
+                } else {
+                    message.make_response(Command::GetBlockMetadatasResponse {
+                        block_metadatas: vec![],
+                    })
+                }
+            }
+            Command::GetBlockMetadatasResponse { .. } => {
+                return Err(PeerError::Unknown(
+                    "Got unhandled GetBlockMetadatasResponse".to_string(),
                 ));
             }
         };

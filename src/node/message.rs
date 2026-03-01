@@ -17,6 +17,9 @@ use crate::{
     version::VERSION,
 };
 
+pub const METADATA_FETCH_MAX_COUNT: usize = 1024;
+pub const CURRENT_NETWORK_ID: u32 = 20072009;
+
 /// Struct that contains every command (request, response) sent on the p2p network
 #[derive(Encode, Decode, Debug, Clone)]
 pub enum Command {
@@ -50,6 +53,13 @@ pub enum Command {
     },
     GetBlockMetadataResponse {
         block_metadata: Option<BlockMetadata>,
+    },
+    GetBlockMetadatas {
+        range_start: usize,
+        range_end: usize,
+    },
+    GetBlockMetadatasResponse {
+        block_metadatas: Vec<BlockMetadata>,
     },
     GetBlock {
         block_hash: Hash,
@@ -91,6 +101,9 @@ pub enum MessageError {
 
     #[error("Received header version or size bytes length is not correct")]
     HeaderItemLength(#[from] TryFromSliceError),
+
+    #[error("Incorrect network")]
+    IncorrectNetwork,
 }
 
 pub type MessageId = u32;
@@ -121,7 +134,7 @@ impl Message {
     }
 
     /// Serialize message into a Vec<u8> to be sent
-    /// Message is serialized into: `[10 bytes header (version 2, id 4, payload size 4)][payload]`
+    /// Message is serialized into: `[14 bytes header (network_id: 4, version 2, id 4, payload size 4)][payload]`
     pub fn serialize(&self) -> Result<Vec<u8>, MessageError> {
         // Serialize just the command to get its size
         let command_bytes = bincode::encode_to_vec(&self.command, bincode::config::standard())?;
@@ -130,6 +143,7 @@ impl Message {
         // Serialize the header first
         let mut header_bytes: Vec<u8> = Vec::new();
         header_bytes.extend_from_slice(&self.version.to_be_bytes());
+        header_bytes.extend_from_slice(CURRENT_NETWORK_ID.to_be_bytes());
         header_bytes.extend_from_slice(&self.id.to_be_bytes());
         header_bytes.extend_from_slice(&size.to_be_bytes());
 
@@ -152,28 +166,37 @@ impl Message {
     }
 
     /// Read a message from a TcpStream (its owned read half)
+    // Header layout:
+    // [version:2][network_id:4][id:4][size:4] = 14 bytes
     pub async fn from_stream(stream: &mut OwnedReadHalf) -> Result<Self, MessageError> {
-        let mut header_bytes = [0u8; 10];
-        if stream.read_exact(&mut header_bytes).await? != 10 {
+        let mut header_bytes = [0u8; 14];
+        if stream.read_exact(&mut header_bytes).await? != 14 {
             return Err(MessageError::HeaderLength);
         }
 
-        let (version_bytes, id_and_size) = header_bytes.split_at(2);
-        let (id_bytes, size_bytes) = id_and_size.split_at(4);
+        let (version_bytes, rest) = header_bytes.split_at(2);
+        let (network_bytes, rest) = rest.split_at(4);
+        let (id_bytes, size_bytes) = rest.split_at(4);
 
         let version = u16::from_be_bytes(version_bytes.try_into()?);
+        let network_id = u32::from_be_bytes(network_bytes.try_into()?);
         let id = MessageId::from_be_bytes(id_bytes.try_into()?);
         let size = u32::from_be_bytes(size_bytes.try_into()?);
+
+        // Network validation
+        if network_id != CURRENT_NETWORK_ID {
+            return Err(MessageError::IncorrectNetwork);
+        }
 
         let mut command_bytes = vec![0u8; size as usize];
         stream.read_exact(&mut command_bytes).await?;
 
         let command = bincode::decode_from_slice(&command_bytes, bincode::config::standard())?.0;
-        // info!("RX: {:#?}", command);
+
         Ok(Message {
-            command,
-            id,
             version,
+            id,
+            command,
         })
     }
 }
