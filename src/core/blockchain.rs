@@ -242,12 +242,15 @@ impl Blockchain {
                     return Err(BlockchainError::RewardTransactionIdMissing);
                 }
 
-                if transaction
-                    .outputs
-                    .iter()
-                    .fold(0, |acc, output| acc + output.amount)
-                    != get_block_reward(self.block_store().get_height())
-                {
+                let mut out_sum = 0u64;
+
+                for output in &transaction.outputs {
+                    out_sum = out_sum
+                        .checked_add(output.amount)
+                        .ok_or(TransactionError::OverflowError)?;
+                }
+
+                if out_sum != get_block_reward(self.block_store().get_height()) {
                     return Err(BlockchainError::InvalidRewardTransactionAmount);
                 }
 
