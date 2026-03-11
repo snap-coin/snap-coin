@@ -215,7 +215,7 @@ impl Blockchain {
                 self.utxos.validate_transaction(
                     transaction,
                     &BigUint::from_bytes_be(&self.get_transaction_difficulty()),
-                    is_ibd,
+                    false,
                 )?;
 
                 // Check for double spending
