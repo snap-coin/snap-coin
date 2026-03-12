@@ -9,7 +9,7 @@ use crate::{
         p2p_server::BAN_SCORE_THRESHOLD, sync::sync_to_peer,
     },
     node::{
-        message::{Command, METADATA_FETCH_MAX_COUNT, Message},
+        message::{Command, HASHES_FETCH_MAX_COUNT, METADATA_FETCH_MAX_COUNT, Message},
         peer::{PeerError, PeerHandle},
         peer_behavior::{PeerBehavior, SharedPeerBehavior},
     },
@@ -71,7 +71,7 @@ impl PeerBehavior for FullNodePeerBehavior {
                 message.make_response(Command::Pong { height: local })
             }
             Command::Pong { .. } => {
-                return Err(PeerError::Unknown("Got unhandled Ping".to_string()));
+                return Err(PeerError::Unknown("Got unhandled Pong".to_string()));
             }
             Command::GetPeers => {
                 let mut peers: Vec<String> = node_state
@@ -134,15 +134,23 @@ impl PeerBehavior for FullNodePeerBehavior {
                 ));
             }
             Command::GetBlockHashes { start, end } => {
-                let mut hashes = vec![];
-                for height in start..end {
-                    if let Some(hash) = blockchain.block_store().get_block_hash_by_height(height) {
-                        hashes.push(hash);
+                if start < end && end.saturating_sub(start) <= HASHES_FETCH_MAX_COUNT {
+                    let mut hashes = vec![];
+                    for height in start..end {
+                        if let Some(hash) =
+                            blockchain.block_store().get_block_hash_by_height(height)
+                        {
+                            hashes.push(hash);
+                        }
                     }
+                    message.make_response(Command::GetBlockHashesResponse {
+                        block_hashes: hashes,
+                    })
+                } else {
+                    message.make_response(Command::GetBlockHashesResponse {
+                        block_hashes: vec![],
+                    })
                 }
-                message.make_response(Command::GetBlockHashesResponse {
-                    block_hashes: hashes,
-                })
             }
             Command::GetBlockHashesResponse { .. } => {
                 return Err(PeerError::Unknown(
@@ -189,7 +197,7 @@ impl PeerBehavior for FullNodePeerBehavior {
             } => {
                 if range_start < range_end
                     && range_end <= self.blockchain.block_store().get_height()
-                    && range_end.saturating_sub(range_end) <= METADATA_FETCH_MAX_COUNT
+                    && range_end.saturating_sub(range_start) <= METADATA_FETCH_MAX_COUNT
                 {
                     let mut metadatas = vec![];
                     for height in range_start..range_end {

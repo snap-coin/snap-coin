@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub const METADATA_FETCH_MAX_COUNT: usize = 1024;
+pub const HASHES_FETCH_MAX_COUNT: usize = 1_000_000;
 pub const CURRENT_NETWORK_ID: u32 = 200720092;
 
 /// Struct that contains every command (request, response) sent on the p2p network

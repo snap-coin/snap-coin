@@ -241,6 +241,17 @@ impl Blockchain {
                 if transaction.transaction_id.is_none() {
                     return Err(BlockchainError::RewardTransactionIdMissing);
                 }
+                if !is_ibd
+                    && !transaction.transaction_id.unwrap().compare_with_data(
+                        &transaction
+                            .get_tx_hashing_buf()
+                            .map_err(|_e| BlockError::EncodeError)?,
+                    )
+                {
+                    Err(TransactionError::InvalidHash(
+                        transaction.transaction_id.unwrap().dump_base36(),
+                    ))?;
+                }
 
                 let mut out_sum = 0u64;
 
