@@ -4,12 +4,20 @@ use ed25519_dalek::ed25519::Error;
 use ed25519_dalek::ed25519::signature::SignerMut;
 use ed25519_dalek::{Signature as DalekSignature, VerifyingKey};
 use num_bigint::BigUint;
+#[cfg(feature = "full")]
 use randomx_rs::{RandomXCache, RandomXDataset, RandomXFlag, RandomXVM};
+#[cfg(feature = "light")]
+use rustdom_x::vm::Vm;
+#[cfg(feature = "light")]
+use rustdom_x::{VmMemory, new_vm};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::Deref;
+#[cfg(feature = "light")]
+use std::sync::Arc;
 use std::sync::OnceLock;
+#[cfg(feature = "full")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use keys::{Private, Public};
@@ -26,24 +34,34 @@ pub mod address_inclusion_filter;
 pub const RANDOMX_SEED: &[u8] = b"snap-coin-testnet";
 
 /// Wrapper for the dataset to assert Sync manually
+#[cfg(feature = "full")]
 #[derive(Clone)]
 struct SharedDataset(RandomXDataset);
 
 // SAFETY: RandomXDataset is immutable after creation, safe for concurrent reads
+#[cfg(feature = "full")]
 unsafe impl Sync for SharedDataset {}
+#[cfg(feature = "full")]
 unsafe impl Send for SharedDataset {}
 
+#[cfg(feature = "full")]
 static DATASET: OnceLock<SharedDataset> = OnceLock::new();
+#[cfg(feature = "light")]
+static DATASET: OnceLock<Arc<VmMemory>> = OnceLock::new();
+#[cfg(feature = "full")]
 static IS_LIGHT_MODE: AtomicBool = AtomicBool::new(true);
+#[cfg(feature = "full")]
 static HUGE_PAGES: AtomicBool = AtomicBool::new(false);
 
 /// This can only be called at the beginning of a program to be effective (before all Hash::new() or Hash::compare_with_data() calls to work)
 /// Enables full memory mode, substantially increasing hash rate, by allocating a 2GB scratch pad for hashing
+#[cfg(feature = "full")]
 pub fn randomx_optimized_mode(huge_pages: bool) {
     IS_LIGHT_MODE.store(false, Ordering::SeqCst);
     HUGE_PAGES.store(huge_pages, Ordering::SeqCst);
 }
 
+#[cfg(feature = "full")]
 fn has_huge_pages_support() -> bool {
     // Linux check
     #[cfg(target_os = "linux")]
@@ -81,6 +99,7 @@ fn has_huge_pages_support() -> bool {
 }
 
 /// Returns a reference to the shared dataset
+#[cfg(feature = "full")]
 fn get_dataset() -> RandomXDataset {
     let dataset = DATASET.get_or_init(|| {
         let mut flags = RandomXFlag::get_recommended_flags()
@@ -116,7 +135,14 @@ fn get_dataset() -> RandomXDataset {
     dataset.clone().0
 }
 
+#[cfg(feature = "light")]
+fn get_dataset() -> Arc<VmMemory> {
+    let dataset = DATASET.get_or_init(|| Arc::new(VmMemory::full(RANDOMX_SEED)));
+    dataset.clone()
+}
+
 // Thread-local VM
+#[cfg(feature = "full")]
 thread_local! {
     static THREAD_VM: RefCell<RandomXVM> = RefCell::new({
         if IS_LIGHT_MODE.load(Ordering::SeqCst) {
@@ -140,14 +166,40 @@ thread_local! {
     });
 }
 
-pub fn randomx_hash(input: &[u8]) -> [u8; 32] {
-    THREAD_VM.with(|vm_cell| {
-        let vm = vm_cell.borrow_mut();
-        unsafe {
-            let hash_vec = vm.calculate_hash(input).unwrap_unchecked();
-            *(hash_vec.as_ptr() as *const [u8; 32])
-        }
+#[cfg(feature = "light")]
+thread_local! {
+    static THREAD_VM: RefCell<Vm> = RefCell::new({
+        new_vm(get_dataset())
     })
+}
+
+pub fn randomx_hash(input: &[u8]) -> [u8; 32] {
+    #[cfg(feature = "full")]
+    {
+        return THREAD_VM.with(|vm_cell| {
+            let mut vm = vm_cell.borrow_mut();
+            unsafe {
+                let hash_vec = vm.calculate_hash(input).unwrap_unchecked();
+                *(hash_vec.as_ptr() as *const [u8; 32])
+            }
+        });
+    }
+
+    #[cfg(feature = "light")]
+    {
+        return THREAD_VM.with(|vm| {
+            let out: [u8; 32] = vm
+                .borrow_mut()
+                .calculate_hash(input)
+                .as_bytes()
+                .try_into()
+                .expect("hash must be 32 bytes");
+            out
+        });
+    }
+
+    #[cfg(not(any(feature = "full", feature = "light")))]
+    panic!("Hashing is disabled without light or full feature enabled")
 }
 
 /// Store and hash Argon2 hashes (compare too)
