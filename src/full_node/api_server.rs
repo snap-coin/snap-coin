@@ -7,7 +7,7 @@ use tokio::{
 };
 
 use crate::{
-    api::requests::{Request, Response},
+    requests::{Request, Response},
     blockchain_data_provider::BlockchainDataProvider,
     core::{
         difficulty::calculate_live_transaction_difficulty, transaction::TransactionError,
@@ -26,16 +26,16 @@ pub enum ApiError {
 }
 
 /// Server for hosting a Snap Coin API
-pub struct Server {
+pub struct FullNodeApiServer {
     port: u32,
     blockchain: SharedBlockchain,
     node_state: SharedNodeState,
 }
 
-impl Server {
+impl FullNodeApiServer {
     /// Create a new server, do not listen for connections yet
     pub fn new(port: u32, blockchain: SharedBlockchain, node_state: SharedNodeState) -> Self {
-        Server {
+        FullNodeApiServer {
             port,
             blockchain,
             node_state,

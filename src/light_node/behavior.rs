@@ -1,54 +1,105 @@
-use std::sync::Arc;
+use std::sync::{Arc, atomic::Ordering};
 
-use log::warn;
+use log::{error, warn};
 
 use crate::{
-    light_node::{SharedLightNodeState, accept_block, accept_transaction},
-    node::{
-        message::{Command, Message},
-        peer::{PeerError, PeerHandle},
-        peer_behavior::{PeerBehavior, SharedPeerBehavior},
+    light_node::{
+        accept_block, accept_transaction,
+        light_node_state::SharedLightNodeState,
+        sync::{LightNodeSyncError, start_sync},
     },
+    node::{BAN_SCORE_THRESHOLD, message::{Command, ConnectionFlags, Message}, peer::{PeerError, PeerHandle}, peer_behavior::{PeerBehavior, SharedPeerBehavior}},
 };
 
 pub struct LightNodePeerBehavior {
-    light_node_state: SharedLightNodeState,
+    node_state: SharedLightNodeState,
 }
 
 impl LightNodePeerBehavior {
-    pub fn new(light_node_state: SharedLightNodeState) -> SharedPeerBehavior {
-        Arc::new(Self { light_node_state })
+    pub fn new(node_state: SharedLightNodeState) -> SharedPeerBehavior {
+        Arc::new(Self { node_state })
     }
 }
 
 #[async_trait::async_trait]
 impl PeerBehavior for LightNodePeerBehavior {
-    async fn on_message(&self, message: Message, _peer: &PeerHandle) -> Result<Message, PeerError> {
-        let light_node_state = &self.light_node_state;
+    async fn on_message(&self, message: Message, peer: &PeerHandle) -> Result<Message, PeerError> {
         let response = match message.command {
-            Command::Connect => message.make_response(Command::AcknowledgeConnection),
+            Command::Connect => {
+                if message.version >= 4 {
+                    message.make_response(Command::AcknowledgeConnectionWithFlags {
+                        flags: ConnectionFlags::empty(), // We are a light node we don't serve anything
+                    })
+                } else {
+                    message.make_response(Command::AcknowledgeConnection)
+                }
+            }
             Command::AcknowledgeConnection => {
                 return Err(PeerError::Unknown(
                     "Got unhandled AcknowledgeConnection".to_string(),
                 ));
             }
-            Command::Ping { height } => message.make_response(Command::Pong { height }),
-            Command::Pong { .. } => {
-                return Err(PeerError::Unknown("Got unhandled Ping".to_string()));
+            Command::AcknowledgeConnectionWithFlags { .. } => {
+                return Err(PeerError::Unknown(
+                    "Got unhandled AcknowledgeConnectionWithFlags".to_string(),
+                ));
             }
-            Command::GetPeers => message.make_response(Command::SendPeers { peers: vec![] }),
+            Command::Ping { height } => {
+                let local = self.node_state.get_height();
+                if local + 1 < height && !self.node_state.is_syncing.load(Ordering::SeqCst) {
+                    // Need two block offset
+                    self.node_state.is_syncing.store(true, Ordering::SeqCst);
+                    let peer = peer.clone();
+
+                    // We need to sync to longer chain
+                    let node_state = self.node_state.clone();
+                    tokio::spawn(async move {
+                        node_state.mempool.clear().await; // We completely clear the mempool since syncing may invalidate, or double spend transactions
+                        let res: Result<(), LightNodeSyncError> = {
+                            let _lock = node_state.processing.lock().await; // Get a lock to make sure that we are not overwriting any blocks by accident
+                            start_sync(node_state.clone()).await
+                        };
+                        node_state.is_syncing.store(false, Ordering::SeqCst);
+                        match res {
+                            Ok(()) => {}
+                            Err(e) => {
+                                if let Err(e) = peer.kill(e.to_string()).await {
+                                    error!("Failed to kill peer {}, error: {e}", peer.address);
+                                }
+                            }
+                        }
+                    });
+                }
+                message.make_response(Command::Pong { height: local })
+            }
+            Command::Pong { .. } => {
+                return Err(PeerError::Unknown("Got unhandled Pong".to_string()));
+            }
+            Command::GetPeers => {
+                let peers: Vec<String> = self
+                    .node_state
+                    .connected_peers
+                    .read()
+                    .await
+                    .values()
+                    .filter(|peer| !peer.is_client)
+                    .map(|peer| peer.address.to_string())
+                    .collect();
+
+                message.make_response(Command::SendPeers { peers })
+            }
             Command::SendPeers { .. } => {
                 return Err(PeerError::Unknown("Got unhandled SendPeers".to_string()));
             }
             Command::NewBlock { ref block } => {
-                // if !*light_node_state.is_syncing.read().await {
-                match accept_block(&light_node_state, block.clone()).await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!("Incoming block is invalid: {e}")
+                if !self.node_state.is_syncing.load(Ordering::SeqCst) {
+                    match accept_block(&self.node_state, block.clone(), false).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!("Incoming block is invalid: {e}")
+                        }
                     }
                 }
-                // }
 
                 message.make_response(Command::NewBlockResolved)
             }
@@ -58,10 +109,12 @@ impl PeerBehavior for LightNodePeerBehavior {
                 ));
             }
             Command::NewTransaction { ref transaction } => {
-                match accept_transaction(&light_node_state, transaction.clone()).await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!("Incoming transaction is invalid: {e}")
+                if !self.node_state.is_syncing.load(Ordering::SeqCst) {
+                    match accept_transaction(&self.node_state, transaction.clone(), false).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!("Incoming transaction is invalid: {e}")
+                        }
                     }
                 }
                 message.make_response(Command::NewTransactionResolved)
@@ -71,25 +124,17 @@ impl PeerBehavior for LightNodePeerBehavior {
                     "Got unhandled NewTransactionAccepted".to_string(),
                 ));
             }
-            Command::GetBlock { .. } => message.make_response(Command::GetBlockResponse {
-                block: None, // We do not store blocks
-            }),
+            Command::GetBlock { .. } => {
+                message.make_response(Command::GetBlockResponse { block: None })
+            }
             Command::GetBlockResponse { .. } => {
                 return Err(PeerError::Unknown(
                     "Got unhandled GetBlockResponse".to_string(),
                 ));
             }
-            Command::GetBlockHashes { start, end } => {
-                let mut hashes = vec![];
-                for height in start..end {
-                    if let Some(meta) = light_node_state.meta_store().get_meta_by_height(height)
-                        && let Some(hash) = meta.hash
-                    {
-                        hashes.push(hash);
-                    }
-                }
+            Command::GetBlockHashes { .. } => {
                 message.make_response(Command::GetBlockHashesResponse {
-                    block_hashes: hashes,
+                    block_hashes: vec![],
                 })
             }
             Command::GetBlockHashesResponse { .. } => {
@@ -99,19 +144,30 @@ impl PeerBehavior for LightNodePeerBehavior {
             }
             Command::GetTransactionMerkleProof { .. } => {
                 message.make_response(Command::GetTransactionMerkleProofResponse { proof: None })
-            } // We don't give merkle proofs as we don't have all blocks
+            }
             Command::GetTransactionMerkleProofResponse { .. } => {
                 return Err(PeerError::Unknown(
                     "Got unhandled GetTransactionMerkleProofResponse".to_string(),
                 ));
             }
-            Command::GetBlockMetadata { block_hash } => {
-                let block_metadata = light_node_state.meta_store().get_meta_by_hash(block_hash);
-                message.make_response(Command::GetBlockMetadataResponse { block_metadata })
+            Command::GetBlockMetadata { .. } => {
+                message.make_response(Command::GetBlockMetadataResponse {
+                    block_metadata: None,
+                })
             }
             Command::GetBlockMetadataResponse { .. } => {
                 return Err(PeerError::Unknown(
                     "Got unhandled GetBlockMetadataResponse".to_string(),
+                ));
+            }
+            Command::GetBlockMetadatas { .. } => {
+                message.make_response(Command::GetBlockMetadatasResponse {
+                    block_metadatas: vec![],
+                })
+            }
+            Command::GetBlockMetadatasResponse { .. } => {
+                return Err(PeerError::Unknown(
+                    "Got unhandled GetBlockMetadatasResponse".to_string(),
                 ));
             }
         };
@@ -120,14 +176,30 @@ impl PeerBehavior for LightNodePeerBehavior {
     }
 
     async fn get_height(&self) -> usize {
-        self.light_node_state.meta_store().get_height()
+        self.node_state.get_height()
     }
 
     async fn on_kill(&self, peer: &PeerHandle) {
-        self.light_node_state
+        self.node_state
             .connected_peers
             .write()
             .await
             .remove(&peer.address);
+        self.node_state.punish_ip(peer.address.ip()).await;
+        if self
+            .node_state
+            .client_health_scores
+            .read()
+            .await
+            .get(&peer.address.ip())
+            .unwrap_or(&0)
+            > &BAN_SCORE_THRESHOLD
+        {
+            // Extra punishment
+            for _ in 0..10 {
+                // 20 Min of punishment
+                self.node_state.punish_ip(peer.address.ip()).await;
+            }
+        }
     }
 }

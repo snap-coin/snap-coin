@@ -7,11 +7,11 @@ pub mod auto_peer;
 /// Reconnects to initial nodes if all disconnect
 pub mod auto_reconnect;
 
-/// Stores all currently pending transactions, that are waiting to be mined
-pub mod mempool;
-
 /// Stores current node state, shared between threads
 pub mod node_state;
+
+/// Snap Coin API Server for this full node
+pub mod api_server;
 
 /// Initial Block Download (IBD) Logic
 pub mod ibd;
@@ -44,8 +44,7 @@ use crate::{
         node_state::{NodeState, SharedNodeState},
     },
     node::{
-        message::{Command, Message},
-        peer::{PeerError, PeerHandle, create_peer},
+        chain_events::ChainEvent, message::{Command, Message}, peer::{PeerError, PeerHandle, create_peer}
     },
 };
 
@@ -92,7 +91,7 @@ pub fn create_full_node(
         .start_expiry_watchdog(move |transaction| {
             let _ = node_state_expiry
                 .chain_events
-                .send(node_state::ChainEvent::TransactionExpiration { transaction });
+                .send(ChainEvent::TransactionExpiration { transaction });
         });
 
     let blockchain = Blockchain::new(
@@ -123,7 +122,7 @@ pub async fn connect_peer(
         stream,
         FullNodePeerBehavior::new(blockchain.clone(), node_state.clone()),
         false,
-    )?;
+    ).await?;
     node_state
         .connected_peers
         .write()
@@ -195,7 +194,7 @@ pub async fn accept_block(
     info!("New block accepted: {}", block_hash.dump_base36());
 
     // Broadcast new block
-    let _ = node_state.chain_events.send(node_state::ChainEvent::Block {
+    let _ = node_state.chain_events.send(ChainEvent::Block {
         block: new_block.clone(),
     });
 
@@ -261,7 +260,7 @@ pub async fn accept_transaction(
     // Broadcast new transaction
     let _ = node_state
         .chain_events
-        .send(node_state::ChainEvent::Transaction {
+        .send(ChainEvent::Transaction {
             transaction: new_transaction.clone(),
         });
 

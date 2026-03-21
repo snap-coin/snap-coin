@@ -21,13 +21,18 @@ pub mod crypto;
 pub mod node;
 
 /// Full node logic
+#[cfg(feature = "full-node")]
 pub mod full_node;
 
 /// Light node logic
-// pub mod light_node;
+#[cfg(feature = "light-node")]
+pub mod light_node;
 
-/// A struct for interacting with a node instance through the Snap Coin API
-pub mod api;
+/// Snap Coin API client
+pub mod client;
+
+/// Snap Coin API client requests and responses
+pub mod requests;
 
 /// A set with a maximum capacity that deletes the oldest elements first
 pub mod bounded_set;

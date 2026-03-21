@@ -1,21 +1,16 @@
 use std::{
-    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
 use log::error;
 use thiserror::Error;
-use tokio::{io::AsyncWriteExt, net::TcpListener, sync::RwLock, task::JoinHandle, time::sleep};
+use tokio::{io::AsyncWriteExt, net::TcpListener, task::JoinHandle, time::sleep};
 
 use crate::{
     full_node::{SharedBlockchain, behavior::FullNodePeerBehavior, node_state::SharedNodeState},
     node::peer::create_peer,
 };
-
-pub const BAN_SCORE_THRESHOLD: u8 = 10;
-pub const PUNISHMENT: u8 = 4;
-pub type ClientHealthScores = RwLock<HashMap<IpAddr, u8>>;
 
 #[derive(Error, Debug)]
 pub enum P2PServerError {
@@ -55,7 +50,9 @@ pub async fn start_p2p_server(
                 stream,
                 FullNodePeerBehavior::new(blockchain.clone(), node_state.clone()),
                 true,
-            ) {
+            )
+            .await
+            {
                 Ok(handle) => {
                     node_state
                         .connected_peers

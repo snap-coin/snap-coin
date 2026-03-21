@@ -2,12 +2,10 @@ use log::info;
 
 use crate::{
     core::blockchain::BlockchainError,
-    full_node::{
-        SharedBlockchain,
-        node_state::{self, SharedNodeState},
-    },
+    full_node::{SharedBlockchain, node_state::SharedNodeState},
     node::{
-        message::{Command, Message},
+        chain_events::ChainEvent,
+        message::{Command, ConnectionFlags, Message},
         peer::PeerHandle,
     },
 };
@@ -34,6 +32,9 @@ pub async fn sync_to_peer(
     node_state: &SharedNodeState,
     peer_height: usize,
 ) -> Result<(), SyncError> {
+    if !peer.flags.contains(ConnectionFlags::FULL_NODE_CAPABILITY) {
+        return Ok(());
+    }
     let local_height = blockchain.block_store().get_height();
     info!(
         "[SYNC] Starting sync: local height = {}, peer height = {}",
@@ -106,9 +107,7 @@ pub async fn sync_to_peer(
                     blockchain.add_block(block.clone(), false, false)?;
                     node_state.set_last_seen_block(block.meta.hash.unwrap());
                     // Broadcast new block
-                    let _ = node_state
-                        .chain_events
-                        .send(node_state::ChainEvent::Block { block });
+                    let _ = node_state.chain_events.send(ChainEvent::Block { block });
                     info!("[SYNC] Added block at height {}", current_height + 1);
                 }
             }

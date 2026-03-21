@@ -12,7 +12,7 @@ use tokio::{
 };
 
 use crate::{
-    full_node::{SharedBlockchain, connect_peer, node_state::SharedNodeState},
+    light_node::{connect_peer, light_node_state::SharedLightNodeState},
     node::{
         message::{Command, Message},
         peer::{PeerError, PeerHandle},
@@ -48,11 +48,7 @@ async fn get_peer_referrals(peer: &PeerHandle) -> Result<Vec<SocketAddr>, PeerEr
 }
 
 /// Start a Auto Peer daemon, that automatically finds peers to connect to via P2P
-pub fn start_auto_peer(
-    node_state: SharedNodeState,
-    blockchain: SharedBlockchain,
-    reserved_ips: Vec<IpAddr>,
-) -> JoinHandle<()> {
+pub fn start_auto_peer(node_state: SharedLightNodeState) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             let peer_count =
@@ -87,13 +83,10 @@ pub fn start_auto_peer(
                     let referrals = get_peer_referrals(&peer).await?;
 
                     for referral in referrals.iter().take(TARGET_PEERS) {
-                        let reserved_ips = reserved_ips.clone();
                         let node_state = node_state.clone();
-                        let blockchain = blockchain.clone();
                         let peer = peer.clone();
                         let _ = timeout(PEER_CONNECT_TIMEOUT, async move {
-                            try_connect(&node_state, &blockchain, &peer, referral, reserved_ips)
-                                .await;
+                            try_connect(&node_state, &peer, referral).await;
                         })
                         .await;
                     }
@@ -111,16 +104,13 @@ pub fn start_auto_peer(
 }
 
 pub async fn try_connect(
-    node_state: &SharedNodeState,
-    blockchain: &SharedBlockchain,
+    node_state: &SharedLightNodeState,
     referrer: &PeerHandle,
     referral: &SocketAddr,
-    reserved_ips: Vec<IpAddr>,
 ) {
     let is_my_ip = |ip: &IpAddr| {
         ip.is_loopback()
             || ip.is_unspecified()
-            || reserved_ips.contains(ip)
             || get_if_addrs()
                 .expect("Could not get Local machine IP addresses.")
                 .iter()
@@ -139,7 +129,7 @@ pub async fn try_connect(
         return;
     }
     // try to connect to peer, if cant, no biggie
-    if let Ok(connected_peer) = connect_peer(*referral, &blockchain, &node_state).await {
+    if let Ok(connected_peer) = connect_peer(*referral, &node_state).await {
         info!(
             "Connected to new peer: {}, referred by: {}, capability: {:?}",
             connected_peer.address, referrer.address, connected_peer.flags

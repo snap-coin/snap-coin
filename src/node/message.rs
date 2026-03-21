@@ -1,7 +1,9 @@
 use std::array::TryFromSliceError;
 
 use bincode::{Decode, Encode};
+use bitflags::bitflags;
 use rand::random;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -20,6 +22,13 @@ use crate::{
 pub const METADATA_FETCH_MAX_COUNT: usize = 1024;
 pub const HASHES_FETCH_MAX_COUNT: usize = 1_000_000;
 pub const CURRENT_NETWORK_ID: u32 = 200720092;
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+    pub struct ConnectionFlags: u32 {
+        const FULL_NODE_CAPABILITY = 1;
+    }
+}
 
 /// Struct that contains every command (request, response) sent on the p2p network
 #[derive(Encode, Decode, Debug, Clone)]
@@ -83,6 +92,10 @@ pub enum Command {
     },
     GetTransactionMerkleProofResponse {
         proof: Option<MerkleTreeProof>,
+    },
+    AcknowledgeConnectionWithFlags {
+        #[bincode(with_serde)]
+        flags: ConnectionFlags,
     },
 }
 

@@ -1,48 +1,49 @@
-/// Handles Light Node State
-pub mod light_node_state;
-
-/// Handles storing downloaded block meta
-pub mod block_meta_store;
-
-/// Handles storing blocks that the node might be interested in
-pub mod interesting_blocks;
-
-/// Starts initial block download
-pub mod initial_block_download;
-
-/// Handles what the light node does when it gets a p2p message
-mod behavior;
-
-use flexi_logger::{Duplicate, FileSpec, Logger};
-use log::info;
-use num_bigint::BigUint;
+use flexi_logger::{Duplicate, FileSpec, LogfileSelector, Logger};
+use futures::future::join_all;
+use log::{error, info};
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, Once},
+    sync::{Once, OnceLock},
 };
 use tokio::net::TcpStream;
 
 use crate::{
     core::{
-        block::{Block, MAX_TRANSACTIONS_PER_BLOCK},
+        block::Block,
         blockchain::{self, BlockchainError},
-        difficulty::calculate_block_difficulty,
-        transaction::{MAX_TRANSACTION_IO, Transaction, TransactionError},
+        difficulty::DifficultyState,
+        transaction::{Transaction, TransactionError},
     },
+    crypto::{Hash, keys::Public},
     light_node::{
         behavior::LightNodePeerBehavior,
-        light_node_state::{LightChainEvent, LightNodeState},
+        light_node_state::{LightNodeState, SharedLightNodeState},
+        sync::{LightNodeSyncError, start_sync},
     },
-    node::peer::{PeerError, PeerHandle, create_peer},
+    node::{
+        message::{Command, Message},
+        peer::{PeerError, PeerHandle, create_peer},
+    },
 };
 
-pub type SharedLightNodeState = Arc<LightNodeState>;
+pub mod api_server;
+pub mod auto_peer;
+mod behavior;
+pub mod light_node_state;
+pub mod sync;
+pub mod transaction_store;
+pub mod utxos;
 
 static LOGGER_INIT: Once = Once::new();
 
-/// Creates a full node (SharedBlockchain and SharedNodeState), connecting to peers, accepting blocks and transactions
-pub fn create_light_node(node_path: &str, disable_stdout: bool) -> SharedLightNodeState {
+static LOGGER_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+/// Creates a full node (SharedBlockchain, SharedNodeState, log_path), connecting to peers, accepting blocks and transactions
+pub fn create_light_node(
+    node_path: &str,
+    disable_stdout: bool,
+) -> Result<(SharedLightNodeState, PathBuf), sled::Error> {
     let node_path = PathBuf::from(node_path);
 
     LOGGER_INIT.call_once(|| {
@@ -57,20 +58,24 @@ pub fn create_light_node(node_path: &str, disable_stdout: bool) -> SharedLightNo
             logger = logger.duplicate_to_stderr(Duplicate::Info);
         }
 
-        logger.start().ok(); // Ignore errors if logger is already set
+        info!("Starting logger...");
 
-        info!("Logger initialized for node at {:?}", node_path);
+        if let Ok(logger) = logger.start()
+            && let Ok(log_files) = logger.existing_log_files(&LogfileSelector::default())
+        {
+            LOGGER_PATH.set(log_files[0].clone()).unwrap();
+            info!("Logger initialized for node at {:?}", log_files[0]);
+        }
     });
 
-    let node_state = LightNodeState::new_empty(node_path);
-
-    Arc::new(node_state)
+    let node_state = LightNodeState::new(node_path.to_str().unwrap())?;
+    Ok((node_state, LOGGER_PATH.get().unwrap().clone()))
 }
 
 /// Connect to a peer
 pub async fn connect_peer(
     address: SocketAddr,
-    light_node_state: &SharedLightNodeState,
+    node_state: &SharedLightNodeState,
 ) -> Result<PeerHandle, PeerError> {
     let stream = TcpStream::connect(address)
         .await
@@ -78,10 +83,11 @@ pub async fn connect_peer(
 
     let handle = create_peer(
         stream,
-        LightNodePeerBehavior::new(light_node_state.clone()),
+        LightNodePeerBehavior::new(node_state.clone()),
         false,
-    )?;
-    light_node_state
+    )
+    .await?;
+    node_state
         .connected_peers
         .write()
         .await
@@ -90,154 +96,205 @@ pub async fn connect_peer(
     Ok(handle)
 }
 
+/// Forward a message to all peers
+pub async fn to_peers(message: Message, node_state: &SharedLightNodeState) {
+    let peers_snapshot: Vec<_> = node_state
+        .connected_peers
+        .read()
+        .await
+        .values()
+        .cloned()
+        .collect();
+
+    // Create a list of futures for all peers
+    let futures = peers_snapshot.into_iter().map(|peer| {
+        let message = message.clone();
+        async move {
+            if let Err(err) = peer.request(message).await {
+                if let Err(e) = peer.kill(err.to_string()).await {
+                    error!("Failed to kill peer, error: {e}");
+                }
+            }
+        }
+    });
+
+    // Run all futures concurrently
+    join_all(futures).await;
+}
+
 /// Accept a new block to the local blockchain, and forward it to all peers
 pub async fn accept_block(
-    light_node_state: &SharedLightNodeState,
+    node_state: &SharedLightNodeState,
     new_block: Block,
-) -> Result<(), PeerError> {
-    // Make sure merkle tree, filter, and hash
-    if let Err(e) = new_block.check_meta() {
-        return Err(BlockchainError::from(e).into());
-    }
+    is_historical: bool,
+) -> Result<(), BlockchainError> {
+    new_block.check_completeness()?;
+    new_block.validate_block_hash()?;
     let block_hash = new_block.meta.hash.unwrap(); // Unwrap is okay, we checked that block is complete
 
+    if node_state.last_seen_block() == block_hash {
+        return Ok(()); // We already processed this block
+    }
+    node_state.set_last_seen_block(block_hash);
+
+    // Wait for any running add block tasks to finish, hold a lock to prevent stacking
+    let _lock = node_state.processing.lock().await;
+
     // Validation
-    blockchain::validate_block_timestamp(&new_block)?;
-    for tx in &new_block.transactions {
-        blockchain::validate_transaction_timestamp_in_block(tx, &new_block)?;
-    }
-
-    if light_node_state.meta_store().get_last_block_hash() != new_block.meta.previous_block {
-        return Err(BlockchainError::InvalidPreviousBlockHash.into());
-    }
-
-    if new_block.transactions.len() > MAX_TRANSACTIONS_PER_BLOCK {
-        return Err(BlockchainError::TooManyTransactions.into());
-    }
-
-    if BigUint::from_bytes_be(&*block_hash)
-        > BigUint::from_bytes_be(&calculate_block_difficulty(
-            &light_node_state
-                .meta_store()
-                .difficulty_state
-                .get_block_difficulty(),
-            new_block.transactions.len(),
-        ))
+    // Check if previous block hash is valid
+    if node_state
+        .last_seen_block_hashes()
+        .iter()
+        .next()
+        .unwrap_or(&Hash::new_from_buf([0u8; 32]))
+        == &new_block.meta.previous_block
     {
-        return Err(
-            BlockchainError::from(TransactionError::InsufficientDifficulty(
-                block_hash.dump_base36(),
-            ))
-            .into(),
-        );
+        return Err(BlockchainError::InvalidPreviousBlockHash);
     }
 
-    if let Err(e) = new_block.validate_difficulties(
-        &light_node_state
-            .meta_store()
-            .difficulty_state
-            .get_block_difficulty(),
-        &light_node_state
-            .meta_store()
-            .difficulty_state
-            .get_transaction_difficulty(),
-    ) {
-        return Err(BlockchainError::from(e).into());
+    if !is_historical {
+        new_block.validate_block_hash()?;
     }
 
-    light_node_state
-        .meta_store()
-        .difficulty_state
-        .update_difficulty(&new_block);
+    // Mempool, spend transactions
+    node_state
+        .mempool
+        .spend_transactions(
+            new_block
+                .transactions
+                .iter()
+                .map(|tx| tx.transaction_id.unwrap())
+                .collect(),
+        )
+        .await;
 
-    light_node_state
-        .meta_store()
-        .save_block_meta(new_block.meta.clone())?;
+    node_state
+        .utxos
+        .scan_block(
+            &new_block,
+            node_state.get_height(),
+            &node_state.transaction_store,
+        )
+        .map_err(|e| BlockchainError::UTXOs(e.to_string()))?;
 
+    let difficulty_state = DifficultyState::new_default();
+    *difficulty_state.transaction_difficulty.write().unwrap() = new_block.meta.tx_pow_difficulty;
+    difficulty_state.update_difficulty(&new_block);
+    *node_state.transaction_difficulty.write().await =
+        difficulty_state.get_transaction_difficulty();
+
+    node_state.increment_height();
+
+    node_state.flush().await;
     info!("New block accepted: {}", block_hash.dump_base36());
-
-    // Broadcast new block
-    let _ = light_node_state.chain_events.send(LightChainEvent::Block {
-        block: new_block.clone(),
-    });
     Ok(())
 }
 
 /// Accept a new block to the local blockchain, and forward it to all peers
 pub async fn accept_transaction(
-    light_node_state: &SharedLightNodeState,
+    node_state: &SharedLightNodeState,
     new_transaction: Transaction,
+    trusted: bool,
 ) -> Result<(), BlockchainError> {
     new_transaction.check_completeness()?;
     let transaction_id = new_transaction.transaction_id.unwrap(); // Unwrap is okay, we checked that tx is complete
-    if light_node_state
-        .seen_transactions
-        .read()
-        .await
+
+    if node_state
+        .last_seen_transactions()
         .contains(&transaction_id)
     {
-        return Ok(());
+        return Ok(()); // We already processed this tx
     }
-    light_node_state
-        .seen_transactions
-        .write()
-        .await
-        .insert(transaction_id);
-
-    let transaction_hashing_buf = new_transaction
-        .get_tx_hashing_buf()
-        .map_err(|e| BlockchainError::BincodeEncode(e.to_string()))?;
+    node_state.add_last_seen_transaction(transaction_id);
 
     // Validation
     blockchain::validate_transaction_timestamp(&new_transaction)?;
-    new_transaction.check_completeness()?;
-
-    if !transaction_id.compare_with_data(&transaction_hashing_buf) {
-        return Err(TransactionError::InvalidHash(transaction_id.dump_base36()).into());
-    }
-
-    if BigUint::from_bytes_be(&*transaction_id)
-        > BigUint::from_bytes_be(
-            &light_node_state
-                .meta_store()
-                .difficulty_state
-                .get_transaction_difficulty(),
-        )
-    {
-        return Err(TransactionError::InsufficientDifficulty(transaction_id.dump_base36()).into());
-    }
-
-    if new_transaction.inputs.len() + new_transaction.outputs.len() > MAX_TRANSACTION_IO {
-        return Err(TransactionError::TooMuchIO.into());
-    }
-
-    if new_transaction.inputs.is_empty() {
-        return Err(TransactionError::NoInputs.into());
-    }
 
     for input in &new_transaction.inputs {
-        if input.signature.is_none()
-            || input
-                .signature
-                .unwrap()
-                .validate_with_public(
-                    &input.output_owner,
-                    &new_transaction
-                        .get_input_signing_buf()
-                        .map_err(|e| BlockchainError::BincodeEncode(e.to_string()))?,
-                )
-                .map_or(true, |valid| !valid)
+        if !input
+            .signature
+            .unwrap()
+            .validate_with_public(
+                &input.output_owner,
+                &new_transaction
+                    .get_input_signing_buf()
+                    .map_err(|e| BlockchainError::BincodeEncode(e.to_string()))?,
+            )
+            .map_err(|e| BlockchainError::BincodeEncode(e.to_string()))?
         {
-            return Err(TransactionError::InvalidSignature(transaction_id.dump_base36()).into());
+            Err(TransactionError::InvalidSignature(
+                transaction_id.dump_base36(),
+            ))?;
         }
     }
 
-    // Broadcast new transaction
-    let _ = light_node_state
-        .chain_events
-        .send(LightChainEvent::Transaction {
-            transaction: new_transaction.clone(),
-        });
+    if !node_state
+        .mempool
+        .validate_transaction(&new_transaction)
+        .await
+    {
+        return Err(TransactionError::DoubleSpend(transaction_id.dump_base36()).into());
+    }
 
+    node_state
+        .mempool
+        .add_transaction(new_transaction.clone())
+        .await;
+    node_state.flush().await;
+
+    if trusted {
+        to_peers(
+            Message::new(Command::NewTransaction {
+                transaction: new_transaction,
+            }),
+            &node_state,
+        )
+        .await;
+    }
     Ok(())
+}
+
+/// Pop last block
+pub async fn pop_block(node_state: &SharedLightNodeState) -> Result<(), BlockchainError> {
+    let _lock = node_state.processing.lock().await;
+
+    node_state.decrement_height();
+
+    node_state
+        .transaction_store
+        .remove_transactions_at_height(node_state.get_height());
+    node_state
+        .utxos
+        .pop_block(node_state.get_height())
+        .map_err(|e| BlockchainError::UTXOs(e.to_string()))?;
+    node_state.flush().await;
+    Ok(())
+}
+
+/// Starts tracking an address and re-syncs to track it
+pub async fn start_tracking(
+    node_state: &SharedLightNodeState,
+    address: Public,
+    restore_height: usize,
+) -> Result<(), LightNodeSyncError> {
+    if node_state.utxos.get_watched().any(|w| w == address) {
+        info!("Already tracking {}", address.dump_base36());
+        return Ok(());
+    }
+    info!("Now tracking {}", address.dump_base36());
+
+    node_state.utxos.add_address(address).unwrap();
+    node_state.set_height(restore_height);
+    node_state.flush_sync();
+    start_sync(node_state.clone()).await
+}
+
+/// Stops tracking an address
+pub fn stop_tracking(node_state: &SharedLightNodeState, address: Public) {
+    node_state
+        .utxos
+        .delete_address(address, &node_state.transaction_store)
+        .unwrap();
+    node_state.flush_sync();
+    info!("Stopped tracking {}", address.dump_base36());
 }

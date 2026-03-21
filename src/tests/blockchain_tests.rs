@@ -11,8 +11,8 @@ use crate::{
         difficulty::{STARTING_BLOCK_DIFFICULTY, STARTING_TX_DIFFICULTY},
         transaction::TransactionOutput,
     },
+    node::mempool::MemPool,
     crypto::{address_inclusion_filter::AddressInclusionFilter, keys::Private},
-    full_node::mempool::MemPool,
 };
 
 fn new_tmp_blockchain() -> Blockchain {
@@ -184,6 +184,7 @@ async fn test_transaction_validation() -> Result<(), anyhow::Error> {
 }
 
 #[tokio::test]
+#[cfg(feature = "full-node")]
 async fn test_mempool() -> Result<(), anyhow::Error> {
     let private = Private::new_random();
     let public = private.to_public();

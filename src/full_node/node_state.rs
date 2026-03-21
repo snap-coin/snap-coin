@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -11,16 +10,12 @@ use tokio::sync::{
 
 use crate::{
     core::{
-        block::Block,
         difficulty::calculate_live_transaction_difficulty,
-        transaction::{Transaction, TransactionId},
+        transaction::{TransactionId},
     },
     crypto::Hash,
-    full_node::{
-        mempool::MemPool,
-        p2p_server::{BAN_SCORE_THRESHOLD, ClientHealthScores, PUNISHMENT},
-    },
-    node::peer::PeerHandle,
+
+    node::{BAN_SCORE_THRESHOLD, ClientHealthScores, PUNISHMENT, chain_events::ChainEvent, mempool::MemPool, peer::PeerHandle},
 };
 
 pub type SharedNodeState = Arc<NodeState>;
@@ -142,11 +137,4 @@ impl NodeState {
             .map(|(ip, _score)| *ip)
             .collect()
     }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum ChainEvent {
-    Block { block: Block },
-    Transaction { transaction: Transaction },
-    TransactionExpiration { transaction: TransactionId },
 }

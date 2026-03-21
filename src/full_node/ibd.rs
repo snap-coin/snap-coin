@@ -10,6 +10,7 @@ use tokio::time::Instant;
 
 use crate::core::utils::slice_vec;
 use crate::full_node::node_state::SharedNodeState;
+use crate::node::message::ConnectionFlags;
 use crate::{
     core::block::Block,
     full_node::SharedBlockchain,
@@ -36,7 +37,12 @@ pub async fn ibd_blockchain(
         if peers.is_empty() {
             return Err(anyhow!("No connected peers available for IBD"));
         }
-        peers.values().next().unwrap().clone()
+        peers
+            .values()
+            .filter(|p| p.flags.contains(ConnectionFlags::FULL_NODE_CAPABILITY))
+            .next()
+            .unwrap()
+            .clone()
     };
 
     // Fetch remote height
@@ -104,6 +110,10 @@ pub async fn ibd_blockchain(
 
                 let peer_batch = DOWNLOAD_BATCH / node_state.connected_peers.read().await.len();
                 for (ip, peer) in node_state.connected_peers.read().await.iter() {
+                    if !peer.flags.contains(ConnectionFlags::FULL_NODE_CAPABILITY) {
+                        continue;
+                    }
+
                     let peer_speed = peer_download_speeds.get(ip).unwrap_or(&average_peer_speed);
                     let peer_contribution = peer_speed / average_peer_speed;
                     let download_end = (downloader_height
@@ -244,7 +254,8 @@ pub async fn ibd_blockchain(
                 let speed_up = !full_ibd
                     && (remote_height - current_processing_height) > IBD_SAFE_SKIP_HASHING;
                 blockchain.add_block(block.clone(), speed_up, speed_up)?;
-                if speed_up { // We must validate hash, multi thread
+                if speed_up {
+                    // We must validate hash, multi thread
                     validate_hash_tx.send(block).await?
                 };
 

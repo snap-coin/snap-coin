@@ -7,7 +7,7 @@ use tokio::{
 };
 
 use crate::{
-    api::requests::{Request, RequestResponseError, Response},
+    requests::{Request, RequestResponseError, Response},
     blockchain_data_provider::{BlockchainDataProvider, BlockchainDataProviderError},
     core::{
         block::Block,
@@ -15,8 +15,7 @@ use crate::{
         blockchain::BlockchainError,
         transaction::{Transaction, TransactionId, TransactionOutput},
     },
-    crypto::{Hash, keys::Public},
-    full_node::node_state::ChainEvent,
+    crypto::{Hash, keys::Public}, node::chain_events::ChainEvent,
 };
 
 pub struct Client {
@@ -52,9 +51,15 @@ impl Client {
         &self,
         new_block: Block,
     ) -> Result<Result<(), BlockchainError>, BlockchainDataProviderError> {
-        match self.fetch(Request::NewBlock { new_block }).await? {
+        match self
+            .fetch(Request::NewBlock { new_block })
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::NewBlock { status } => Ok(status),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -65,10 +70,13 @@ impl Client {
     ) -> Result<Result<(), BlockchainError>, BlockchainDataProviderError> {
         match self
             .fetch(Request::NewTransaction { new_transaction })
-            .await?
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
         {
             Response::NewTransaction { status } => Ok(status),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -77,7 +85,11 @@ impl Client {
         let mut mempool = vec![];
         let mut page = 0;
         loop {
-            match self.fetch(Request::Mempool { page }).await? {
+            match self
+                .fetch(Request::Mempool { page })
+                .await
+                .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+            {
                 Response::Mempool {
                     mempool: mempool_page,
                     next_page,
@@ -89,24 +101,40 @@ impl Client {
                         return Ok(mempool);
                     }
                 }
-                _ => return Err(RequestResponseError::IncorrectResponse.into()),
+                _ => {
+                    return Err(BlockchainDataProviderError::RequestResponseError(
+                        RequestResponseError::IncorrectResponse.to_string(),
+                    ));
+                }
             }
         }
     }
 
     /// Get a balance of a public address
     pub async fn get_balance(&self, address: Public) -> Result<u64, BlockchainDataProviderError> {
-        match self.fetch(Request::Balance { address }).await? {
+        match self
+            .fetch(Request::Balance { address })
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Balance { balance } => Ok(balance),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
     /// Get a list of peers of the connected node
     pub async fn get_peers(&self) -> Result<Vec<SocketAddr>, BlockchainDataProviderError> {
-        match self.fetch(Request::Peers).await? {
+        match self
+            .fetch(Request::Peers)
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Peers { peers } => Ok(peers),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -120,10 +148,13 @@ impl Client {
             .fetch(Request::Transaction {
                 transaction_id: *transaction_id,
             })
-            .await?
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
         {
             Response::Transaction { transaction } => Ok(transaction),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -137,12 +168,15 @@ impl Client {
             .fetch(Request::TransactionAndInfo {
                 transaction_id: *transaction_id,
             })
-            .await?
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
         {
             Response::TransactionAndInfo {
                 transaction_and_info,
             } => Ok(transaction_and_info),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -158,7 +192,8 @@ impl Client {
         loop {
             match self
                 .fetch(Request::TransactionsOfAddress { address, page })
-                .await?
+                .await
+                .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
             {
                 Response::TransactionsOfAddress {
                     transactions: transactions_page,
@@ -176,7 +211,11 @@ impl Client {
                         return Ok(transactions);
                     }
                 }
-                _ => return Err(RequestResponseError::IncorrectResponse.into()),
+                _ => {
+                    return Err(BlockchainDataProviderError::RequestResponseError(
+                        RequestResponseError::IncorrectResponse.to_string(),
+                    ));
+                }
             }
         }
     }
@@ -184,9 +223,17 @@ impl Client {
     pub async fn get_live_transaction_difficulty(
         &self,
     ) -> Result<[u8; 32], BlockchainDataProviderError> {
-        match self.fetch(Request::LiveTransactionDifficulty).await? {
+        match self
+            .fetch(Request::LiveTransactionDifficulty)
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::LiveTransactionDifficulty { live_difficulty } => return Ok(live_difficulty),
-            _ => return Err(RequestResponseError::IncorrectResponse.into()),
+            _ => {
+                return Err(BlockchainDataProviderError::RequestResponseError(
+                    RequestResponseError::IncorrectResponse.to_string(),
+                ));
+            }
         }
     }
 
@@ -200,9 +247,14 @@ impl Client {
         let mut stream = self.stream.lock().await;
 
         stream
-            .write_all(&Request::SubscribeToChainEvents.encode()?)
+            .write_all(
+                &Request::SubscribeToChainEvents.encode().map_err(|e| {
+                    BlockchainDataProviderError::RequestResponseError(e.to_string())
+                })?,
+            )
             .await
-            .map_err(|_| RequestResponseError::Stream)?;
+            .map_err(|_| RequestResponseError::Stream)
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?;
 
         loop {
             tokio::select! {
@@ -220,16 +272,14 @@ impl Client {
 
                 // Event path
                 message = Response::decode_from_stream(&mut stream) => {
-                    let message = message?;
+                    let message = message.map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?;
 
                     match message {
                         Response::ChainEvent { event } => {
                             on_event(event);
                         }
                         _ => {
-                            return Err(BlockchainDataProviderError::RequestResponseError(
-                                RequestResponseError::IncorrectResponse,
-                            ));
+                            return Err(BlockchainDataProviderError::RequestResponseError(RequestResponseError::IncorrectResponse.to_string()));
                         }
                     }
                 }
@@ -241,16 +291,28 @@ impl Client {
 #[async_trait::async_trait]
 impl BlockchainDataProvider for Client {
     async fn get_height(&self) -> Result<usize, BlockchainDataProviderError> {
-        match self.fetch(Request::Height).await? {
+        match self
+            .fetch(Request::Height)
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Height { height } => Ok(height as usize),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
     async fn get_reward(&self) -> Result<u64, BlockchainDataProviderError> {
-        match self.fetch(Request::Reward).await? {
+        match self
+            .fetch(Request::Reward)
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Reward { reward } => Ok(reward),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -262,16 +324,25 @@ impl BlockchainDataProvider for Client {
             .fetch(Request::BlockHash {
                 height: height as u64,
             })
-            .await?
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
         {
             Response::BlockHash { hash } => match hash {
-                Some(hash) => match self.fetch(Request::Block { block_hash: hash }).await? {
+                Some(hash) => match self
+                    .fetch(Request::Block { block_hash: hash })
+                    .await
+                    .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+                {
                     Response::Block { block } => Ok(block),
-                    _ => Err(RequestResponseError::IncorrectResponse.into()),
+                    _ => Err(BlockchainDataProviderError::RequestResponseError(
+                        RequestResponseError::IncorrectResponse.to_string(),
+                    )),
                 },
                 None => return Ok(None),
             },
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -279,9 +350,15 @@ impl BlockchainDataProvider for Client {
         &self,
         block_hash: Hash,
     ) -> Result<Option<Block>, BlockchainDataProviderError> {
-        match self.fetch(Request::Block { block_hash }).await? {
+        match self
+            .fetch(Request::Block { block_hash })
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Block { block } => Ok(block),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -289,9 +366,15 @@ impl BlockchainDataProvider for Client {
         &self,
         hash: Hash,
     ) -> Result<Option<usize>, BlockchainDataProviderError> {
-        match self.fetch(Request::BlockHeight { hash }).await? {
+        match self
+            .fetch(Request::BlockHeight { hash })
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::BlockHeight { height } => Ok(height),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -303,30 +386,45 @@ impl BlockchainDataProvider for Client {
             .fetch(Request::BlockHash {
                 height: height as u64,
             })
-            .await?
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
         {
             Response::BlockHash { hash } => Ok(hash),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
     async fn get_transaction_difficulty(&self) -> Result<[u8; 32], BlockchainDataProviderError> {
-        match self.fetch(Request::Difficulty).await? {
+        match self
+            .fetch(Request::Difficulty)
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Difficulty {
                 transaction_difficulty,
                 block_difficulty: _,
             } => Ok(transaction_difficulty),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
     async fn get_block_difficulty(&self) -> Result<[u8; 32], BlockchainDataProviderError> {
-        match self.fetch(Request::Difficulty).await? {
+        match self
+            .fetch(Request::Difficulty)
+            .await
+            .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
+        {
             Response::Difficulty {
                 transaction_difficulty: _,
                 block_difficulty,
             } => Ok(block_difficulty),
-            _ => Err(RequestResponseError::IncorrectResponse.into()),
+            _ => Err(BlockchainDataProviderError::RequestResponseError(
+                RequestResponseError::IncorrectResponse.to_string(),
+            )),
         }
     }
 
@@ -339,7 +437,8 @@ impl BlockchainDataProvider for Client {
         loop {
             match self
                 .fetch(Request::AvailableUTXOs { address, page })
-                .await?
+                .await
+                .map_err(|e| BlockchainDataProviderError::RequestResponseError(e.to_string()))?
             {
                 Response::AvailableUTXOs {
                     available_inputs,
@@ -352,7 +451,11 @@ impl BlockchainDataProvider for Client {
                         return Ok(outputs);
                     }
                 }
-                _ => return Err(RequestResponseError::IncorrectResponse.into()),
+                _ => {
+                    return Err(BlockchainDataProviderError::RequestResponseError(
+                        RequestResponseError::IncorrectResponse.to_string(),
+                    ));
+                }
             }
         }
     }

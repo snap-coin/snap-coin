@@ -6,12 +6,12 @@ use crate::{
     crypto::merkle_tree::MerkleTreeProof,
     full_node::{
         SharedBlockchain, accept_block, accept_transaction, node_state::SharedNodeState,
-        p2p_server::BAN_SCORE_THRESHOLD, sync::sync_to_peer,
+            sync::sync_to_peer,
     },
     node::{
-        message::{Command, HASHES_FETCH_MAX_COUNT, METADATA_FETCH_MAX_COUNT, Message},
-        peer::{PeerError, PeerHandle},
-        peer_behavior::{PeerBehavior, SharedPeerBehavior},
+        BAN_SCORE_THRESHOLD, message::{
+            Command, ConnectionFlags, HASHES_FETCH_MAX_COUNT, METADATA_FETCH_MAX_COUNT, Message,
+        }, peer::{PeerError, PeerHandle}, peer_behavior::{PeerBehavior, SharedPeerBehavior}
     },
 };
 
@@ -35,10 +35,23 @@ impl PeerBehavior for FullNodePeerBehavior {
         let (blockchain, node_state) = (&self.blockchain, &self.node_state);
 
         let response = match message.command {
-            Command::Connect => message.make_response(Command::AcknowledgeConnection),
+            Command::Connect => {
+                if message.version >= 4 {
+                    message.make_response(Command::AcknowledgeConnectionWithFlags {
+                        flags: ConnectionFlags::FULL_NODE_CAPABILITY,
+                    })
+                } else {
+                    message.make_response(Command::AcknowledgeConnection)
+                }
+            }
             Command::AcknowledgeConnection => {
                 return Err(PeerError::Unknown(
                     "Got unhandled AcknowledgeConnection".to_string(),
+                ));
+            }
+            Command::AcknowledgeConnectionWithFlags { .. } => {
+                return Err(PeerError::Unknown(
+                    "Got unhandled AcknowledgeConnectionWithFlags".to_string(),
                 ));
             }
             Command::Ping { height } => {

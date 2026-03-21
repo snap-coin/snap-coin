@@ -1,10 +1,14 @@
 use rand::random;
 
 use crate::{
-    api::{api_server::Server, client::Client},
     build_block, build_transaction,
+    client::Client,
     crypto::keys::Private,
-    full_node::{SharedBlockchain, accept_block, accept_transaction, create_full_node, node_state::SharedNodeState},
+    full_node::api_server::FullNodeApiServer,
+    full_node::{
+        SharedBlockchain, accept_block, accept_transaction, create_full_node,
+        node_state::SharedNodeState,
+    },
     to_nano,
 };
 
@@ -41,7 +45,12 @@ async fn test_mempool(
     )
     .await?;
 
-    some_tx.compute_pow(&node_state.get_live_transaction_difficulty(blockchain.get_transaction_difficulty()).await, None)?;
+    some_tx.compute_pow(
+        &node_state
+            .get_live_transaction_difficulty(blockchain.get_transaction_difficulty())
+            .await,
+        None,
+    )?;
 
     assert!(
         node_state.mempool.get_mempool().await.is_empty(),
@@ -91,7 +100,7 @@ async fn test_api(
 
     // Create api server & client
     let api_port = 8571u32;
-    let api = Server::new(api_port, blockchain.clone(), node_state.clone());
+    let api = FullNodeApiServer::new(api_port, blockchain.clone(), node_state.clone());
     api.listen().await?;
 
     let client = Client::connect(format!("127.0.0.1:{}", api_port).parse().unwrap()).await?;

@@ -1,7 +1,9 @@
 use crate::{
     blockchain_data_provider::BlockchainDataProvider,
     core::{
-        block::Block, blockchain::{Blockchain, BlockchainError}, transaction::{TransactionId, TransactionOutput}
+        block::Block,
+        blockchain::{Blockchain, BlockchainError},
+        transaction::{TransactionId, TransactionOutput},
     },
     crypto::Hash,
     economics::get_block_reward,

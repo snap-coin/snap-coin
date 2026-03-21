@@ -8,8 +8,7 @@ use crate::{
     core::{
         block::Block, block_store::TransactionAndInfo, blockchain::BlockchainError, transaction::{Transaction, TransactionId, TransactionOutput}
     },
-    crypto::{Hash, keys::Public},
-    full_node::node_state::ChainEvent,
+    crypto::{Hash, keys::Public}, node::chain_events::ChainEvent,
 };
 
 #[derive(Error, Debug, Serialize, Deserialize)]

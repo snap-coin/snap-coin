@@ -19,7 +19,7 @@ use thiserror::Error;
 use crate::{
     core::blockchain::BlockchainError,
     node::{
-        message::{Command, Message, MessageId},
+        message::{Command, ConnectionFlags, Message, MessageId},
         peer_behavior::SharedPeerBehavior,
     },
 };
@@ -83,6 +83,7 @@ pub enum PeerError {
 pub struct PeerHandle {
     pub address: SocketAddr,
     pub is_client: bool,
+    pub flags: ConnectionFlags,
     send: mpsc::Sender<Outgoing>,
     kill: Arc<Mutex<Option<oneshot::Sender<KillSignal>>>>,
 }
@@ -129,7 +130,7 @@ impl PeerHandle {
 }
 
 /// Create a new peer, start internal tasks, and return a PeerHandle
-pub fn create_peer(
+pub async fn create_peer(
     stream: TcpStream,
     behavior: SharedPeerBehavior,
     is_client: bool,
@@ -140,10 +141,29 @@ pub fn create_peer(
 
     let (outgoing_tx, outgoing_rx) = mpsc::channel::<Outgoing>(64);
     let (kill, should_kill) = oneshot::channel::<KillSignal>();
+    let (mut reader, mut writer) = stream.into_split();
+    Message::new(Command::Connect)
+        .send(&mut writer)
+        .await
+        .map_err(|_| PeerError::Unknown("Failed to send connection req".to_string()))?;
+    let flags = match Message::from_stream(&mut reader)
+        .await
+        .map_err(|_| PeerError::Unknown("Failed to receive connection ack".to_string()))?
+        .command
+    {
+        Command::AcknowledgeConnection => ConnectionFlags::FULL_NODE_CAPABILITY,
+        Command::AcknowledgeConnectionWithFlags { flags } => flags,
+        _ => {
+            return Err(PeerError::Unknown(
+                "Got unhandled AcknowledgeConnection".to_string(),
+            ));
+        }
+    };
 
     let handle = PeerHandle {
         send: outgoing_tx,
         kill: Arc::new(Mutex::new(Some(kill))),
+        flags,
         is_client,
         address,
     };
@@ -153,7 +173,6 @@ pub fn create_peer(
         let behavior_on_kill = behavior.clone();
         let my_handle_on_kill = my_handle.clone();
         if let Err(e) = async move {
-            let (reader, writer) = stream.into_split();
 
             let pending: Pending =
                 Arc::new(Mutex::new(HashMap::<MessageId, oneshot::Sender<Message>>::new()));

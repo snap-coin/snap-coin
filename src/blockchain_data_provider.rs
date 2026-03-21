@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{api::requests::RequestResponseError, core::{block::Block, blockchain::BlockchainError, transaction::{TransactionId, TransactionOutput}}, crypto::{Hash, keys::Public}};
+use crate::{core::{block::Block, blockchain::BlockchainError, transaction::{TransactionId, TransactionOutput}}, crypto::{Hash, keys::Public}};
 
 /// Provides a standardized way to access blockchain data from many sources
 #[derive(Error, Debug, Serialize, Deserialize)]
@@ -13,7 +13,7 @@ pub enum BlockchainDataProviderError {
     BlockchainError(#[from] BlockchainError),
 
     #[error("Request / response error")]
-    RequestResponseError(#[from] RequestResponseError)
+    RequestResponseError(String)
 }
 
 #[async_trait::async_trait]

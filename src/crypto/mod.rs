@@ -11,11 +11,13 @@ use rustdom_x::vm::Vm;
 #[cfg(feature = "light")]
 use rustdom_x::{VmMemory, new_vm};
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "full", feature = "light"))]
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::Deref;
 #[cfg(feature = "light")]
 use std::sync::Arc;
+#[cfg(any(feature = "full", feature = "light"))]
 use std::sync::OnceLock;
 #[cfg(feature = "full")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -173,11 +175,12 @@ thread_local! {
     })
 }
 
+#[allow(unused_variables)]
 pub fn randomx_hash(input: &[u8]) -> [u8; 32] {
     #[cfg(feature = "full")]
     {
         return THREAD_VM.with(|vm_cell| {
-            let mut vm = vm_cell.borrow_mut();
+            let vm = vm_cell.borrow_mut();
             unsafe {
                 let hash_vec = vm.calculate_hash(input).unwrap_unchecked();
                 *(hash_vec.as_ptr() as *const [u8; 32])
