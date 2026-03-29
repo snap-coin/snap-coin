@@ -53,7 +53,7 @@ impl TransactionStore {
             .insert(&tx.transaction.transaction_id.unwrap().dump_buf(), tx_buf).unwrap();
     }
 
-    pub fn iter_transactions(&self) -> impl Iterator<Item = TransactionAndInfo> + '_ {
+    pub fn iter_transactions(&self) -> impl DoubleEndedIterator<Item = TransactionAndInfo> + '_ {
         self.transactions.iter().map(|item| {
             let (_tx_id, tx_buf) = item.unwrap();
             bincode::decode_from_slice(tx_buf.as_ref(), bincode::config::standard())

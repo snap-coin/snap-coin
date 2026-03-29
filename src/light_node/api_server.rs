@@ -72,6 +72,7 @@ impl LightNodeApiServer {
                         let all_transactions: Vec<_> = node_state
                             .transaction_store
                             .iter_transactions()
+                            .rev()
                             .filter(|tx_info| tx_info.transaction.contains_address(address))
                             .map(|tx| tx.transaction.transaction_id.unwrap())
                             .collect();
